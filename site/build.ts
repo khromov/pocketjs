@@ -271,8 +271,27 @@ type SpriteMeta = Record<string, { cols: number; rows: number; frames: number; s
 type DemoVariant = { framework: "solid" | "vue-vapor" | "octane" | "svelte"; source: string; spriteMeta?: SpriteMeta };
 type DemoEntry = { name: string; title: string; variants: DemoVariant[] };
 
-function inlinePlaygroundImports(name: string, source: string): string | null {
+function inlinePlaygroundImports(
+  name: string,
+  source: string,
+  framework: DemoVariant["framework"],
+): string | null {
   if (name === "launcher") {
+    // The Svelte variant (apps/launcher/app.svelte) builds and ships like the
+    // Solid one, but it cannot run in the browser Playground: it reads the app
+    // table, the frozen shot and the host viewport through the
+    // framework-NEUTRAL subpaths, and one import map can point
+    // `@pocketjs/framework/launcher` and `/host` at exactly one bundle —
+    // /pg/runtime.js, a module instance whose host is installed only while a
+    // Solid demo runs, so appTable() throws "host not installed" the moment a
+    // Svelte launcher mounts from a ?framework=svelte deep link. Aliasing the
+    // `launcher` and `host` rows to the twins in framework/compiler/subpaths.ts
+    // (`clock` already is), regenerating package.json, adding the matching
+    // /pg/runtime-svelte.js import-map rows and re-exporting those names from
+    // playground/runtime-svelte-entry.ts is what turns the variant on; until
+    // then it stays out of the Playground rather than shipping a demo that
+    // fails on mount.
+    if (framework === "svelte") return null;
     const registryPath = ROOT + "apps/launcher/registry.generated.ts";
     const registrySource = readFileSync(registryPath, "utf8");
     const registryStart = registrySource.indexOf("export const REGISTRY");
@@ -324,7 +343,7 @@ function demoManifest() {
       const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
       if (!validateAndResolveBuildPlan(manifest, { target: "psp" }).ok) continue;
     }
-    const source = inlinePlaygroundImports(name, readFileSync(app, "utf8"));
+    const source = inlinePlaygroundImports(name, readFileSync(app, "utf8"), "solid");
     if (source === null) continue; // multi-file demo
     let title = name[0].toUpperCase() + name.slice(1);
     if (existsSync(main)) {
@@ -336,19 +355,19 @@ function demoManifest() {
     const spriteMeta = demoSpriteMeta(name);
     const variants: DemoVariant[] = [{ framework: "solid", source, spriteMeta }];
     if (existsSync(vueApp)) {
-      const vueSource = inlinePlaygroundImports(name, readFileSync(vueApp, "utf8"));
+      const vueSource = inlinePlaygroundImports(name, readFileSync(vueApp, "utf8"), "vue-vapor");
       if (vueSource !== null) {
         variants.push({ framework: "vue-vapor", source: vueSource, spriteMeta });
       }
     }
     if (existsSync(octaneApp)) {
-      const octaneSource = inlinePlaygroundImports(name, readFileSync(octaneApp, "utf8"));
+      const octaneSource = inlinePlaygroundImports(name, readFileSync(octaneApp, "utf8"), "octane");
       if (octaneSource !== null) {
         variants.push({ framework: "octane", source: octaneSource, spriteMeta });
       }
     }
     if (existsSync(svelteApp)) {
-      const svelteSource = inlinePlaygroundImports(name, readFileSync(svelteApp, "utf8"));
+      const svelteSource = inlinePlaygroundImports(name, readFileSync(svelteApp, "utf8"), "svelte");
       if (svelteSource !== null) {
         variants.push({ framework: "svelte", source: svelteSource, spriteMeta });
       }
