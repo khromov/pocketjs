@@ -133,14 +133,14 @@ const EXPECTED_VUE_DYNAMIC_TEXT: Partial<Record<string, string>> = {
 };
 
 const EXPECTED_VARIANTS: Record<string, Framework[]> = {
-  cards: ["solid", "vue-vapor", "octane"],
-  chrome: ["solid"],
-  cursor: ["solid"],
+  cards: ["solid", "vue-vapor", "octane", "svelte"],
+  chrome: ["solid", "svelte"],
+  cursor: ["solid", "svelte"],
   gallery: ["solid", "vue-vapor", "octane"],
   hero: ["solid", "vue-vapor", "octane", "svelte"],
-  launcher: ["solid"],
+  launcher: ["solid", "svelte"],
   library: ["solid", "vue-vapor", "octane"],
-  motions: ["solid"],
+  motions: ["solid", "svelte"],
   music: ["solid", "vue-vapor", "octane"],
   notifications: ["solid", "vue-vapor", "octane"],
   settings: ["solid", "vue-vapor", "octane"],

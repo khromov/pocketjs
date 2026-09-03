@@ -50,6 +50,8 @@ export interface RenderOptions {
   styles?: Record<string, number>;
   /** App pack; defaults to globalThis.__pak when present. */
   pak?: ArrayBuffer;
+  /** Props for the root component — Svelte's answer to `mount(() => <App x={1} />)`. */
+  props?: Record<string, unknown>;
 }
 
 export type MountOptions = RenderOptions;
@@ -243,7 +245,7 @@ export function render(code: SvelteRenderRoot, opts: RenderOptions = {}): () => 
     }),
   );
 
-  const dispose = rendererRender(code, appRoot);
+  const dispose = rendererRender(code, appRoot, opts.props);
   const removeResizeViewportHook = installResizeViewportHook(resizeViewport);
   return () => {
     removeResizeViewportHook();
@@ -277,6 +279,7 @@ export function mount(code: SvelteRenderRoot, opts: MountOptions = {}): () => vo
     ops,
     styles: opts.styles ?? DEFAULT_STYLE_IDS,
     pak: opts.pak,
+    props: opts.props,
   });
 }
 

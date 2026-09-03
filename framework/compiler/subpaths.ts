@@ -81,7 +81,7 @@ export const SUBPATHS: Record<string, SubpathDecl> = {
     },
     aliases: ["vue-vapor", "svelte"],
   },
-  host: { file: "framework/src/host.ts" },
+  host: { file: "framework/src/host.ts", aliases: TWINS },
   lifecycle: {
     file: {
       solid: "framework/src/lifecycle.ts",
@@ -101,7 +101,7 @@ export const SUBPATHS: Record<string, SubpathDecl> = {
     },
     aliases: ["vue-vapor", "svelte"],
   },
-  launcher: { file: "framework/src/launcher.ts" },
+  launcher: { file: "framework/src/launcher.ts", aliases: TWINS },
   manifest: { file: "framework/src/manifest/index.ts" },
   "idf-host": { file: "framework/src/manifest/idf-host.ts" },
   net: { file: "framework/src/net-api.ts", aliases: TWINS },

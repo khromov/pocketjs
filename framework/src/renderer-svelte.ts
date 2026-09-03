@@ -278,8 +278,12 @@ export function mountInto(
   };
 }
 
-export function render(code: SvelteRenderRoot, root: NodeMirror): () => void {
-  const dispose = mountInto(code, root);
+export function render(
+  code: SvelteRenderRoot,
+  root: NodeMirror,
+  props?: Record<string, unknown>,
+): () => void {
+  const dispose = mountInto(code, root, { props });
   flushSync();
   return dispose;
 }

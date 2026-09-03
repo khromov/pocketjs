@@ -119,6 +119,33 @@ describe("PocketJS authoring rules", () => {
     expect(compileFails(`<view transition:fade></view>`)).toContain("customRenderer");
   });
 
+  // Apps write <View>, never <view>, so a check that only walks host elements
+  // never sees the code it governs.
+  test("the class and style rules apply to components too", () => {
+    const component = (body: string) =>
+      `<script>import { View } from "@pocketjs/framework/svelte/components";` +
+      ` let n = $state(1); let on = $state(true);</script>${body}`;
+
+    expect(compileFails(component(`<View class="w-1 {n}" />`))).toContain("FULL literals");
+    expect(compileFails(component(`<View class={{ on }} />`))).toContain("FULL class literals");
+    expect(compileFails(component(`<View class={["a", "b"]} />`))).toContain("FULL class literals");
+    expect(compileFails(component(`<View style="width: 10px" />`))).toContain(
+      "<View style={{ width: 10 }} />",
+    );
+  });
+
+  test("the supported spellings still compile on a component", () => {
+    const result = compileSvelte(
+      `<script>import { View } from "@pocketjs/framework/svelte/components";` +
+        ` let on = $state(true);</script>` +
+        `<View class={on ? "p-2 bg-red-500" : "p-2 bg-slate-700"} style={{ width: 10 }} />`,
+      "/virtual/Ok.svelte",
+    );
+
+    expect(result.code).toContain("p-2 bg-red-500");
+    expect(result.code).toContain("p-2 bg-slate-700");
+  });
+
   test("errors name the file and line", () => {
     expect(compileFails(`<view></view>\n<view style="x"></view>`)).toContain("Bad.svelte:2:");
   });

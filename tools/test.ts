@@ -179,9 +179,18 @@ const SUITE: readonly Stage[] = [
     prep: [
       ["bun", "tools/build.ts", "hero-main", "--framework=svelte"],
       ["bun", "tools/build.ts", "svelte-lab-main", "--framework=svelte"],
+      ["bun", "tools/build.ts", "cards-main", "--framework=svelte"],
+      ["bun", "tools/build.ts", "chrome-main", "--framework=svelte"],
+      ["bun", "tools/build.ts", "cursor-main", "--framework=svelte"],
+      ["bun", "tools/build.ts", "launcher-main", "--framework=svelte"],
+      ["bun", "tools/build.ts", "motions-main", "--framework=svelte"],
     ],
     browser: true,
-    tests: ["tests/svelte-smoke.test.ts", "tests/svelte-lab.test.ts"],
+    tests: [
+      "tests/svelte-smoke.test.ts",
+      "tests/svelte-lab.test.ts",
+      "tests/svelte-demos.test.ts",
+    ],
   },
   {
     name: "launcher sim",

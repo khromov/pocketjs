@@ -8,6 +8,6 @@
   class={className}
   sprite={sprite}
   debugName={debugName}
-  {@attach (node: NodeMirror) => nodeRef?.(node)}
   {@attach (node: NodeMirror) => applyStyle(node, style)}
+  {@attach (node: NodeMirror) => nodeRef?.(node)}
 ></image>

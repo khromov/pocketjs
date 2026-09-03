@@ -271,21 +271,40 @@ type SpriteMeta = Record<string, { cols: number; rows: number; frames: number; s
 type DemoVariant = { framework: "solid" | "vue-vapor" | "octane" | "svelte"; source: string; spriteMeta?: SpriteMeta };
 type DemoEntry = { name: string; title: string; variants: DemoVariant[] };
 
-function inlinePlaygroundImports(name: string, source: string): string | null {
+function inlinePlaygroundImports(
+  name: string,
+  source: string,
+  framework: DemoVariant["framework"],
+): string | null {
   if (name === "launcher") {
     const registryPath = ROOT + "apps/launcher/registry.generated.ts";
     const registrySource = readFileSync(registryPath, "utf8");
     const registryStart = registrySource.indexOf("export const REGISTRY");
     if (registryStart < 0) throw new Error("launcher registry has no REGISTRY export");
     const registry = registrySource.slice(registryStart).replace(/^export\s+/gm, "");
-    const withDefaultRegistry = source.replace(
-      "export default function Launcher(props: LauncherProps) {",
-      "export default function Launcher(props: LauncherProps = { registry: REGISTRY }) {",
-    );
+    // The Playground mounts a demo with no props, so the registry the entry
+    // normally passes has to become the component's default.
+    const [needle, replacement] =
+      framework === "svelte"
+        ? [
+            "let { registry }: LauncherProps = $props();",
+            "let { registry = REGISTRY }: LauncherProps = $props();",
+          ]
+        : [
+            "export default function Launcher(props: LauncherProps) {",
+            "export default function Launcher(props: LauncherProps = { registry: REGISTRY }) {",
+          ];
+    const withDefaultRegistry = source.replace(needle, replacement);
     if (withDefaultRegistry === source) {
       throw new Error("launcher Playground wrapper could not supply its registry");
     }
-    return registry + "\n" + withDefaultRegistry;
+    if (framework !== "svelte") return registry + "\n" + withDefaultRegistry;
+    // A .svelte file's module code lives inside <script>; prepending would put
+    // the registry in the template.
+    const scriptOpen = withDefaultRegistry.match(/<script[^>]*>\n?/);
+    if (!scriptOpen) throw new Error("launcher Playground wrapper found no <script> block");
+    const at = scriptOpen.index! + scriptOpen[0].length;
+    return withDefaultRegistry.slice(0, at) + registry + "\n" + withDefaultRegistry.slice(at);
   }
   if (!/from\s+["']\.\.?\//.test(source)) return source;
   if (name === "gallery") {
@@ -324,7 +343,7 @@ function demoManifest() {
       const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
       if (!validateAndResolveBuildPlan(manifest, { target: "psp" }).ok) continue;
     }
-    const source = inlinePlaygroundImports(name, readFileSync(app, "utf8"));
+    const source = inlinePlaygroundImports(name, readFileSync(app, "utf8"), "solid");
     if (source === null) continue; // multi-file demo
     let title = name[0].toUpperCase() + name.slice(1);
     if (existsSync(main)) {
@@ -336,19 +355,19 @@ function demoManifest() {
     const spriteMeta = demoSpriteMeta(name);
     const variants: DemoVariant[] = [{ framework: "solid", source, spriteMeta }];
     if (existsSync(vueApp)) {
-      const vueSource = inlinePlaygroundImports(name, readFileSync(vueApp, "utf8"));
+      const vueSource = inlinePlaygroundImports(name, readFileSync(vueApp, "utf8"), "vue-vapor");
       if (vueSource !== null) {
         variants.push({ framework: "vue-vapor", source: vueSource, spriteMeta });
       }
     }
     if (existsSync(octaneApp)) {
-      const octaneSource = inlinePlaygroundImports(name, readFileSync(octaneApp, "utf8"));
+      const octaneSource = inlinePlaygroundImports(name, readFileSync(octaneApp, "utf8"), "octane");
       if (octaneSource !== null) {
         variants.push({ framework: "octane", source: octaneSource, spriteMeta });
       }
     }
     if (existsSync(svelteApp)) {
-      const svelteSource = inlinePlaygroundImports(name, readFileSync(svelteApp, "utf8"));
+      const svelteSource = inlinePlaygroundImports(name, readFileSync(svelteApp, "utf8"), "svelte");
       if (svelteSource !== null) {
         variants.push({ framework: "svelte", source: svelteSource, spriteMeta });
       }
@@ -906,6 +925,11 @@ const PLAYGROUND_IMPORTS: Record<string, string> = {
   "@pocketjs/framework/svelte/input": "/pg/runtime-svelte.js",
   "@pocketjs/framework/svelte/lifecycle": "/pg/runtime-svelte.js",
   "@pocketjs/framework/svelte/renderer": "/pg/runtime-svelte.js",
+  // Neutral modules keep per-framework state (the installed host), so a Svelte
+  // demo must reach the Svelte bundle's instance, not the Solid one.
+  "@pocketjs/framework/svelte/clock": "/pg/runtime-svelte.js",
+  "@pocketjs/framework/svelte/host": "/pg/runtime-svelte.js",
+  "@pocketjs/framework/svelte/launcher": "/pg/runtime-svelte.js",
 };
 const IMPORT_MAP = `<script type="importmap">${JSON.stringify({ imports: PLAYGROUND_IMPORTS })}</script>`;
 

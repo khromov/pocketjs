@@ -21,15 +21,19 @@ export function runFrameHooks(buttons: number): void {
 }
 
 /**
- * Svelte's onDestroy throws outside component initialization, and the entry's
- * installTouchActivation() registers from module scope, where disposal falls to
- * resetFrameHooks() at the next mount instead.
+ * Svelte's onDestroy throws only outside a component, which is where the entry's
+ * installTouchActivation() registers from; there, disposal falls to
+ * resetFrameHooks() at the next mount. Anything else is a real error and is
+ * rethrown rather than swallowed. (Inside onMount it does NOT throw — effects
+ * restore the component context — so a hook registered there is torn down.)
  */
 function onTeardown(dispose: () => void): void {
   try {
     onDestroy(dispose);
-  } catch {
-    // Registered outside a component; the next mount's reset owns it.
+  } catch (error) {
+    const outsideComponent =
+      error instanceof Error && error.message.includes("lifecycle_outside_component");
+    if (!outsideComponent) throw error;
   }
 }
 

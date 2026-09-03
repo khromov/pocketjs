@@ -393,6 +393,21 @@ Authoring rules specific to Svelte apps:
 - **Continuous motion still rides the native channels** — sprite atlases, baked
   keyframe timelines, `animate()`/`jump()` and `setTextContent()` — rather than
   per-frame state, the same rule the other frameworks follow.
+- **A style object re-applies whenever anything it reads changes.** It is applied
+  from an attachment, and `setStyleObject` diffs per key, so unchanged keys never
+  stomp a running tween. But a property under `animate()` must not also be a
+  reactive value in that object, or the re-apply fights the animation. Snapshot it
+  at init, which is Svelte's equivalent of Solid's `untrack`.
+- **`nodeRef` fires after `class`, `style` and `onPress` are on the node**, so an
+  `animate()` or `spring()` started from it sees the element's initial style.
+- **Root props go through `mount`**: `mount(App, { props: { registry } })` is the
+  Svelte spelling of Solid's `mount(() => <App registry={…} />)`.
+- **Input APIs that hand back a disposer** are torn down with Svelte's own
+  lifecycle: `onDestroy(enableCursor({ dpadSpeed: 60 }))`.
+- **A snippet that takes another snippet** needs `import type { Snippet } from
+  "svelte"`. Snippets live in the template, not in `<script>`, so a Solid table of
+  component thunks becomes an `{#if}` ladder or a `{#key}` block. That remount is
+  also how you restart a subtree's baked timelines.
 
 ## What stays shared
 

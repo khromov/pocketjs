@@ -9,9 +9,9 @@
   class={className}
   focusable={focusable}
   debugName={debugName}
-  {@attach (node: NodeMirror) => nodeRef?.(node)}
   {@attach (node: NodeMirror) => {
     applyStyle(node, style);
     applyPress(node, onPress);
   }}
+  {@attach (node: NodeMirror) => nodeRef?.(node)}
 >{@render children?.()}</view>

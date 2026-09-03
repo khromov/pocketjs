@@ -262,6 +262,28 @@ describe("events", () => {
   });
 });
 
+describe("prop ordering", () => {
+  test("nodeRef fires after style and press are on the node", async () => {
+    // Solid's order is create, props, then ref, and an animate()/spring() call
+    // made from a ref must not be undone by the initial style write.
+    const Ordered = (await import("./fixtures/svelte/Ordered.svelte")).default;
+    const calls: Array<[unknown, unknown]> = [];
+
+    const host = { id: ROOT_ID, type: NODE_TYPE.view, parent: null, children: [] } as NodeMirror;
+    const stop = render(Ordered, host, {
+      seen: (style: unknown, press: unknown) => calls.push([style, press]),
+    });
+    flushSync();
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0][0]).toEqual({ translateX: 7 });
+    expect(typeof calls[0][1]).toBe("function");
+
+    stop();
+    runSweep();
+  });
+});
+
 describe("teardown", () => {
   test("unmount leaves nothing behind once the sweep runs", () => {
     teardown();

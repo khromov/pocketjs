@@ -85,13 +85,21 @@ function checkAttributes(source: string, filename: string, element: Node): void 
     if (attribute.type !== "Attribute") continue;
 
     if (attribute.name === "style") {
-      fail(
-        source,
-        filename,
-        attribute,
-        "a `style` attribute is CSS text, which the native tree has no parser for. " +
-          "Pass a style object to the component instead (<View style={{ width: 10 }} />)",
-      );
+      // `style={{ width: 10 }}` on a component is the supported spelling; only a
+      // quoted string is CSS text the native tree cannot parse.
+      const isExpression =
+        attributeValues(attribute.value).every((value) => value.type === "ExpressionTag") &&
+        attributeValues(attribute.value).length === 1;
+      if (!isExpression) {
+        fail(
+          source,
+          filename,
+          attribute,
+          "a `style` attribute is CSS text, which the native tree has no parser for. " +
+            "Pass a style object instead (<View style={{ width: 10 }} />)",
+        );
+      }
+      continue;
     }
     if (attribute.name !== "class") continue;
 
@@ -113,9 +121,21 @@ function checkAttributes(source: string, filename: string, element: Node): void 
   }
 }
 
+/**
+ * Apps write `<View>`, not `<view>`: the host primitives are components, so a
+ * check that only walks elements never sees the code it governs.
+ */
+const STYLED_NODES = new Set([
+  "RegularElement",
+  "SvelteElement",
+  "Component",
+  "SvelteComponent",
+  "SvelteSelf",
+]);
+
 function walkFragment(source: string, filename: string, nodes: readonly Node[]): void {
   for (const node of nodes) {
-    if (node.type === "RegularElement" || node.type === "SvelteElement") {
+    if (STYLED_NODES.has(node.type)) {
       checkAttributes(source, filename, node);
     }
     const fragment = node.fragment as { nodes?: Node[] } | undefined;
