@@ -38,8 +38,14 @@ function fileResponse(path: string): Response {
 
 export function demoManifest(): { name: string; hasPak: boolean; mounts: boolean }[] {
   if (!existsSync(DIST_DIR)) return [];
+  // POCKETJS_DEMO_FILTER narrows the listing to demo names matching one regex.
+  // dist/ is shared by every framework, so a single-framework dev loop
+  // (tools/dev-svelte.ts) would otherwise show all four frameworks' bundles.
+  const pattern = process.env.POCKETJS_DEMO_FILTER?.trim();
+  const filter = pattern ? new RegExp(pattern) : undefined;
   return readdirSync(DIST_DIR)
     .filter((f) => f.endsWith(".js"))
+    .filter((f) => !filter || filter.test(f.slice(0, -3)))
     .sort()
     .map((f) => {
       const name = f.slice(0, -3);

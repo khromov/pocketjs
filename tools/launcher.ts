@@ -405,6 +405,32 @@ function resolveForTarget(
   );
 }
 
+/** POCKETJS_LAUNCHER_FIRST pins outputs to the front of the deck, in the order
+ *  listed. Everything else keeps the title sort, so the deck stays stable and
+ *  the admitted set stays computed — this reorders, it never adds or drops. */
+const PINNED_FIRST = (process.env.POCKETJS_LAUNCHER_FIRST ?? "")
+  .split(",")
+  .map((output) => output.trim())
+  .filter(Boolean);
+
+function byDeckOrder(
+  a: { output: string; title: string },
+  b: { output: string; title: string },
+): number {
+  const rank = (output: string): number => {
+    const index = PINNED_FIRST.indexOf(output);
+    return index < 0 ? PINNED_FIRST.length : index;
+  };
+  if (rank(a.output) !== rank(b.output)) return rank(a.output) - rank(b.output);
+  return a.title < b.title
+    ? -1
+    : a.title > b.title
+      ? 1
+      : a.output < b.output
+        ? -1
+        : 1;
+}
+
 function scanRegistryForTarget(
   exclude: ReadonlySet<string>,
   target: LauncherTarget,
@@ -438,15 +464,7 @@ function scanRegistryForTarget(
     seen.set(output, dir);
     apps.push({ output, id, title, manifest: relative(ROOT, manifestPath) });
   }
-  apps.sort((a, b) =>
-    a.title < b.title
-      ? -1
-      : a.title > b.title
-        ? 1
-        : a.output < b.output
-          ? -1
-          : 1,
-  );
+  apps.sort(byDeckOrder);
   return { apps };
 }
 
@@ -523,15 +541,7 @@ export function includeExternalManifests(
       ),
     });
   }
-  apps.sort((a, b) =>
-    a.title < b.title
-      ? -1
-      : a.title > b.title
-        ? 1
-        : a.output < b.output
-          ? -1
-          : 1,
-  );
+  apps.sort(byDeckOrder);
   return { apps };
 }
 
@@ -971,6 +981,19 @@ export function resizeBilinear(
 async function renderXmbArt(): Promise<void> {
   const pspDir = join(LAUNCHER_DIR, "psp");
   mkdirSync(pspDir, { recursive: true });
+  // POCKETJS_LAUNCHER_XMB names a directory holding ready-made icon0.png and
+  // pic1.png. A themed build (tools/psp-svelte.ts) supplies its own identity
+  // instead of the generated deck render + stage gradient.
+  const override = process.env.POCKETJS_LAUNCHER_XMB?.trim();
+  if (override) {
+    for (const asset of ["icon0.png", "pic1.png"]) {
+      const source = join(override, asset);
+      if (!existsSync(source)) throw new Error(`launcher: ${source} is missing`);
+      copyFileSync(source, join(pspDir, asset));
+    }
+    console.log(`  xmb art: ${override}/{icon0,pic1}.png (override)`);
+    return;
+  }
   const { bootWorld } = await import("../hosts/sim/sim.ts");
   const world = await bootWorld("launcher-main", 60);
   for (let f = 0; f < 60; f++) {
