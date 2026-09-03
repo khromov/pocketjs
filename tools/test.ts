@@ -184,12 +184,14 @@ const SUITE: readonly Stage[] = [
       ["bun", "tools/build.ts", "cursor-main", "--framework=svelte"],
       ["bun", "tools/build.ts", "launcher-main", "--framework=svelte"],
       ["bun", "tools/build.ts", "motions-main", "--framework=svelte"],
+      ["bun", "tools/build.ts", "svelte-snake-main", "--framework=svelte"],
     ],
     browser: true,
     tests: [
       "tests/svelte-smoke.test.ts",
       "tests/svelte-lab.test.ts",
       "tests/svelte-demos.test.ts",
+      "tests/svelte-snake.test.ts",
     ],
   },
   {

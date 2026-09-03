@@ -1,0 +1,30 @@
+{
+  "$schema": "https://pocketjs.dev/schema/pocket-2.json",
+  "pocket": 2,
+  "id": "dev.pocket-stack.svelte.snake",
+  "name": "pocketjs-svelte-snake",
+  "title": "PocketJS: Svelte Snake",
+  "version": "0.6.0",
+  "engine": {
+    "capabilities": {
+      "requires": [
+        "text.glyphs.baked",
+        "input.buttons"
+      ]
+    }
+  },
+  "app": {
+    "entry": "apps/svelte-snake/main.ts",
+    "output": "svelte-snake-main",
+    "framework": "svelte",
+    "viewport": {
+      "fixed": {
+        "logical": [
+          480,
+          272
+        ],
+        "presentation": "integer-fit"
+      }
+    }
+  }
+}
