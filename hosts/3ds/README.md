@@ -67,6 +67,46 @@ Every build writes a target-thinned `.pocket` next to the native artifact.
 target-flavoured PAK.** The native runtime embeds the same file as its immutable
 recovery guest; it no longer embeds independent `app.js` and `app.pak` files.
 
+## Svelte demos
+
+`tools/3ds-svelte.ts` builds the Svelte demo corpus for this host, one `.3dsx`
+per app:
+
+```sh
+bun run 3ds:svelte                  # every Svelte-capable demo -> dist/3ds/
+bun run 3ds:svelte -- hero cards    # only the named apps
+bun run 3ds:svelte -- --cia         # also write installable .cia titles
+```
+
+A committed demo manifest describes the PSP, so the script rewrites three
+parts of it for the duration of one build and restores the file afterwards:
+
+- **framework and entry.** A demo's Svelte variant lives at `main.svelte.ts`
+  while its manifest says `framework=solid` and `entry=main.tsx`, so a build
+  driven by the committed manifest compiles Solid.
+- **viewport.** The demos declare 480x272 under `integer-fit`. This target
+  publishes one logical viewport, 400x240, and one presentation, `native`, so
+  an unmodified manifest is rejected by admission before anything compiles.
+- **the auxiliary surface.** `src/main.c` takes `POCKETJS_AUX_VIEW_W/H` as
+  mandatory `#define`s and drives the bottom screen every frame, so a
+  single-surface guest reaches the compiler as `-DPOCKETJS_AUX_VIEW_W=` and
+  fails inside `main.c` rather than at admission. Each build declares the
+  320x240 auxiliary surface and `display.auxiliary` with it — the resolver
+  rejects either one alone. The demos paint nothing there, so the bottom
+  screen stays empty.
+
+`tests/3ds-svelte.test.ts` covers the rewrite: that each demo admits `3ds-dev`
+after it and none does before it.
+
+**Svelte needed a larger JS stack than Solid.** `src/qjs.c` gave QuickJS 192
+KiB, which held Solid but not Svelte's deeper per-component mount: the guest
+died with `InternalError: stack overflow` before its first frame. The limit is
+now the 256 KiB `engine/quickjs-c/pocket_runtime.c` gives the PSP and the Vita,
+still well under `main.c`'s 1 MiB `__stacksize__`.
+
+The launcher is excluded. `tools/launcher.ts` targets psp, vita and symbian
+only, so there is no multi-app 3DS package for a shell to front.
+
 ## Updating the guest from SD
 
 The runtime checks one staging path at boot:

@@ -37,8 +37,13 @@
 /* contracts/spec/spec.ts FIXED_DT: the core steps at exactly 1/60 s, and this
  * host presents at the same rate, so the advertised simulation rate is 60. */
 #define POCKETJS_SIMULATION_HZ 60
-/* QuickJS recurses; the 3DS main thread's stack is set in main.c. */
-#define POCKETJS_JS_STACK_SIZE (192 * 1024)
+/* QuickJS recurses; the 3DS main thread's stack is set in main.c. This is the
+ * same 256 KiB engine/quickjs-c/pocket_runtime.c gives the PSP and the Vita.
+ * 192 KiB held Solid but not Svelte: Svelte's mount walks deeper per component
+ * than Solid's, and the guest died with "InternalError: stack overflow" before
+ * its first frame. The ceiling here is main.c's 1 MiB __stacksize__, which
+ * QuickJS's limit has to stay under with room for the C frames underneath it. */
+#define POCKETJS_JS_STACK_SIZE (256 * 1024)
 
 typedef enum {
   HostCreateNode,
