@@ -3,6 +3,9 @@
 #include "pocket_ui_cabi.h"
 #include "pocket_spec.h"
 #include "quickjs.h"
+#ifdef POCKET_SVC_WIRE
+#include "svcwire.h"
+#endif
 
 #include <stddef.h>
 #include <stdint.h>
@@ -25,6 +28,16 @@ extern void pocket_host_boot_stage(int stage);
 #define REPORT_BOOT_STAGE(stage) pocket_host_boot_stage(stage)
 #else
 #define REPORT_BOOT_STAGE(stage) ((void)(stage))
+#endif
+
+/*
+ * Harness builds provide pocket_bench_stage() and opt into exact boundaries
+ * around bundle evaluation, the guest turn, the job drain and core ticks.
+ */
+#if defined(POCKET_RUNTIME_STAGE_HOOKS)
+#define BENCH_STAGE(stage) pocket_bench_stage(stage)
+#else
+#define BENCH_STAGE(stage) ((void)(stage))
 #endif
 
 typedef enum {
@@ -59,17 +72,32 @@ typedef enum {
   HostDebugPause,
   HostDebugStep,
   HostReportAppAction,
+#ifdef POCKET_SVC_WIRE
+  /* spec ops 30..32 — the host service channel over the PKNT wire
+   * (svcwire.c). Present only in builds whose companion is on the network,
+   * so every other legacy Apple op table stays byte-identical. */
+  HostSvcOpen,
+  HostSvcPoll,
+  HostSvcSend,
+#endif
 } HostOperation;
 
 static JSRuntime *runtime;
 static JSContext *context;
 static JSValue global;
 static JSValue frame_function;
+#if defined(POCKET_RUNTIME_HARNESS)
+static JSValue harness_function;
+#endif
 static char last_error[512];
 static char reported_action_name[POCKETJS_ACTION_NAME_CAPACITY];
 static int32_t reported_action_value;
 static unsigned long reported_action_sequence;
 static int runtime_failed;
+#ifdef POCKET_SVC_WIRE
+/* spec SVC_POLL_BUF (8192) + terminator: one svcPoll batch. */
+static char svc_poll_buffer[8193];
+#endif
 
 static void clear_error(void) {
   last_error[0] = '\0';
@@ -418,6 +446,24 @@ static JSValue host_operation(
       reported_action_sequence += 1;
       JS_FreeCString(ctx, text);
       return JS_UNDEFINED;
+#ifdef POCKET_SVC_WIRE
+    case HostSvcOpen: {
+      int open;
+      if (!string_argument(ctx, argc, argv, 0, &text, &text_length)) return JS_NewBool(ctx, 0);
+      open = svcwire_open(text);
+      JS_FreeCString(ctx, text);
+      return JS_NewBool(ctx, open);
+    }
+    case HostSvcPoll: {
+      size_t length = svcwire_recv_lines(svc_poll_buffer, sizeof svc_poll_buffer);
+      return length == 0 ? JS_UNDEFINED : JS_NewStringLen(ctx, svc_poll_buffer, length);
+    }
+    case HostSvcSend:
+      if (!string_argument(ctx, argc, argv, 0, &text, &text_length)) return JS_UNDEFINED;
+      svcwire_send_line(text, text_length);
+      JS_FreeCString(ctx, text);
+      return JS_UNDEFINED;
+#endif
   }
   return JS_ThrowInternalError(ctx, "unknown PocketJS HostOp");
 }
@@ -478,6 +524,14 @@ static int install_host(int width, int height) {
     JS_FreeValue(context, ui);
     return 0;
   }
+#ifdef POCKET_SVC_WIRE
+  if (!add_host_operation(context, ui, "svcOpen", 1, HostSvcOpen) ||
+      !add_host_operation(context, ui, "svcPoll", 0, HostSvcPoll) ||
+      !add_host_operation(context, ui, "svcSend", 1, HostSvcSend)) {
+    JS_FreeValue(context, ui);
+    return 0;
+  }
+#endif
 
   JSValue viewport = JS_NewObject(context);
   if (JS_IsException(viewport)) {
@@ -522,6 +576,9 @@ static int drain_jobs(void) {
 
 void pocket_runtime_shutdown(void) {
   if (context != 0) {
+#if defined(POCKET_RUNTIME_HARNESS)
+    if (!JS_IsUndefined(harness_function)) JS_FreeValue(context, harness_function);
+#endif
     if (!JS_IsUndefined(frame_function)) JS_FreeValue(context, frame_function);
     if (!JS_IsUndefined(global)) JS_FreeValue(context, global);
     JS_FreeContext(context);
@@ -532,6 +589,9 @@ void pocket_runtime_shutdown(void) {
   runtime_failed = 0;
   frame_function = JS_UNDEFINED;
   global = JS_UNDEFINED;
+#if defined(POCKET_RUNTIME_HARNESS)
+  harness_function = JS_UNDEFINED;
+#endif
   ui_shutdown();
 }
 
@@ -599,6 +659,7 @@ int pocket_runtime_boot(
   }
   REPORT_BOOT_STAGE(7);
 
+  BENCH_STAGE(POCKET_BENCH_STAGE_EVAL);
   JSValue result = JS_Eval(
     context,
     java_script,
@@ -606,6 +667,7 @@ int pocket_runtime_boot(
     "app.js",
     JS_EVAL_TYPE_GLOBAL
   );
+  BENCH_STAGE(POCKET_BENCH_STAGE_IDLE);
   if (JS_IsException(result)) {
     take_exception(context);
     pocket_runtime_shutdown();
@@ -621,7 +683,10 @@ int pocket_runtime_boot(
     return 0;
   }
   REPORT_BOOT_STAGE(9);
-  if (!drain_jobs()) {
+  BENCH_STAGE(POCKET_BENCH_STAGE_JOBS);
+  int jobs_ok = drain_jobs();
+  BENCH_STAGE(POCKET_BENCH_STAGE_IDLE);
+  if (!jobs_ok) {
     pocket_runtime_shutdown();
     return 0;
   }
@@ -639,6 +704,11 @@ static int run_frame(
   unsigned int tick;
   unsigned int index;
   if (runtime == 0 || context == 0 || runtime_failed) return 0;
+#ifdef POCKET_SVC_WIRE
+  /* Bounded, non-blocking: discovery, connect, rx and tx progress once per
+   * guest turn, before the guest polls. */
+  svcwire_pump();
+#endif
   JSValue touch_array = JS_NewArray(context);
   JSValue hit_array = JS_NewArray(context);
   if (JS_IsException(touch_array) || JS_IsException(hit_array)) {
@@ -684,20 +754,26 @@ static int run_frame(
     touch_array,
     hit_array,
   };
+  BENCH_STAGE(POCKET_BENCH_STAGE_JS);
   JSValue result = JS_Call(context, frame_function, global, 4, arguments);
   JS_FreeValue(context, hit_array);
   JS_FreeValue(context, touch_array);
   if (JS_IsException(result)) {
     take_exception(context);
     runtime_failed = 1;
+    BENCH_STAGE(POCKET_BENCH_STAGE_IDLE);
     return 0;
   }
   JS_FreeValue(context, result);
+  BENCH_STAGE(POCKET_BENCH_STAGE_JOBS);
   if (!drain_jobs()) {
     runtime_failed = 1;
+    BENCH_STAGE(POCKET_BENCH_STAGE_IDLE);
     return 0;
   }
+  BENCH_STAGE(POCKET_BENCH_STAGE_TICK);
   for (tick = 0; tick < tick_count; ++tick) ui_tick();
+  BENCH_STAGE(POCKET_BENCH_STAGE_IDLE);
   return 1;
 }
 
@@ -760,6 +836,52 @@ int pocket_runtime_frame(int touch_down, int touch_x, int touch_y, int touch_hit
   /* The original iPhone host presents at 30 Hz and advances two 60 Hz ticks. */
   return pocket_runtime_frame_ticks(touch_down, touch_x, touch_y, touch_hit, 2);
 }
+
+#if defined(POCKET_RUNTIME_HARNESS)
+int pocket_runtime_harness_bind(const char *global_function) {
+  JSValue function;
+  if (runtime == 0 || context == 0 || runtime_failed || global_function == 0 ||
+      global_function[0] == '\0') return 0;
+  function = JS_GetPropertyStr(context, global, global_function);
+  if (JS_IsException(function)) {
+    take_exception(context);
+    return 0;
+  }
+  if (!JS_IsFunction(context, function)) {
+    JS_FreeValue(context, function);
+    set_error("harness dispatcher is not a function");
+    return 0;
+  }
+  if (!JS_IsUndefined(harness_function)) JS_FreeValue(context, harness_function);
+  harness_function = function;
+  return 1;
+}
+
+int pocket_runtime_harness_call(int32_t opcode, int32_t argument, int32_t *out) {
+  JSValue arguments[2];
+  JSValue value;
+  int32_t number = 0;
+  if (runtime == 0 || context == 0 || runtime_failed ||
+      JS_IsUndefined(harness_function)) return 0;
+  arguments[0] = JS_NewInt32(context, opcode);
+  arguments[1] = JS_NewInt32(context, argument);
+  value = JS_Call(context, harness_function, global, 2, arguments);
+  JS_FreeValue(context, arguments[1]);
+  JS_FreeValue(context, arguments[0]);
+  if (JS_IsException(value)) {
+    take_exception(context);
+    return 0;
+  }
+  if (out != 0 && JS_ToInt32(context, &number, value) < 0) {
+    JS_FreeValue(context, value);
+    take_exception(context);
+    return 0;
+  }
+  JS_FreeValue(context, value);
+  if (out != 0) *out = number;
+  return 1;
+}
+#endif
 
 int pocket_runtime_hit_test(float x, float y) {
   if (runtime == 0 || context == 0 || runtime_failed) return 0;
