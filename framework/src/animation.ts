@@ -8,7 +8,9 @@ export {
   cancelAnim,
   jump,
   createJumpBatch,
+  createPropBatchWriter,
   type AnimateOptions,
   type EasingName,
   type JumpBatch,
+  type PropBatchWriter,
 } from "./anim.ts";

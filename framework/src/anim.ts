@@ -120,6 +120,57 @@ export function jump(node: NodeMirror | number, prop: PropName, value: number | 
   getOps().setProp(nodeId(node), animatablePropId(prop), encodePropValue(prop, value));
 }
 
+/**
+ * A per-frame record buffer for the hot path a jump batch cannot serve: a
+ * pool where only the live slots change each frame. The caller writes
+ * `[nodeId, propId, value]` triples straight into `records` (no call per
+ * write) and commits the first `count` of them as one host call; dead slots
+ * cost nothing. Values are raw f32 numbers, so only f32-kind props are
+ * accepted by `propId()` (translate, scale, opacity — not colors or ints).
+ */
+export interface PropBatchWriter {
+  readonly records: Float64Array;
+  readonly capacity: number;
+  /** The id to write into a record's second slot. */
+  propId(prop: PropName): number;
+  /** Apply the first `count` records, in order, with jump() semantics. */
+  commit(count: number): void;
+}
+
+export function createPropBatchWriter(capacity: number): PropBatchWriter {
+  if (!Number.isInteger(capacity) || capacity <= 0) {
+    throw new RangeError(`PocketJS: prop batch capacity must be a positive integer (got ${capacity})`);
+  }
+  const ops = getOps();
+  const records = new Float64Array(capacity * 3);
+  return {
+    records,
+    capacity,
+    propId(prop) {
+      const kind = PROP_VALUE_KIND[prop];
+      if (kind === VALUE_KIND.color || kind === VALUE_KIND.int) {
+        throw new Error(`PocketJS: prop '${prop}' is not an f32 prop; the batch writer carries raw numbers`);
+      }
+      return animatablePropId(prop);
+    },
+    commit(count) {
+      if (count <= 0) return;
+      if (count > capacity) {
+        throw new RangeError(`PocketJS: prop batch count ${count} exceeds capacity ${capacity}`);
+      }
+      if (ops.setPropBatch) {
+        ops.setPropBatch(
+          count === capacity ? (records.buffer as ArrayBuffer) : records.buffer.slice(0, count * 24),
+        );
+        return;
+      }
+      for (let i = 0; i < count; i++) {
+        ops.setProp(records[i * 3], records[i * 3 + 1], records[i * 3 + 2]);
+      }
+    },
+  };
+}
+
 export interface JumpBatch {
   /** Replace one entry's pending value. Entries retain their node/prop pair. */
   set(index: number, value: number | string): void;
