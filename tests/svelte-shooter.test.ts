@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { BTN } from "../contracts/spec/spec.ts";
+import { createSimAudioSink } from "../hosts/sim/audio.ts";
 import { bootWorld, fnv1a, treeHasText, type SimWorld } from "../hosts/sim/sim.ts";
 
 const APP = "svelte-shooter-main.svelte";
@@ -122,6 +123,31 @@ describe("Svelte shooter", () => {
     expect(treeHasText(tree, "CROSS  FIRE")).toBe(false);
     expect(treeHasText(tree, "LOCK ON")).toBe(true);
     expect(treeHasText(tree, "LIVES 3")).toBe(true);
+  });
+
+  test("the theme streams on a host with the audio module, and never changes a pixel", async () => {
+    // One world at a time: a boot replaces the shared host globals, and the
+    // player reads `globalThis.audio` live (tests/audio-sim.test.ts does the same).
+    const journey = async (sink: ReturnType<typeof createSimAudioSink> | null): Promise<string> => {
+      const world = await bootWorld(APP, 60, sink ? { audio: sink.ns } : undefined);
+      for (let f = 0; f < 90; f++) {
+        world.frame(f === 2 ? BTN.RTRIGGER : 0);
+        for (let t = 0; t < world.ticksPerFrame; t++) {
+          world.tick();
+          sink?.tick(); // the virtual audio clock advances with the core clock
+        }
+      }
+      return fnv1a(world.render());
+    };
+    const sink = createSimAudioSink();
+    const withAudio = await journey(sink);
+    const silent = await journey(null);
+    // The theme really fed the sink from the first frames, without starving it.
+    expect(sink.log[0]).toBe("op createStream 22050 1");
+    expect(sink.consumedFrames()).toBeGreaterThan(22050);
+    expect(sink.log.some((l) => l.includes('"underrun"'))).toBe(false);
+    // Sound never feeds back into the game (docs/AUDIO.md).
+    expect(withAudio).toBe(silent);
   });
 
   test("a 400x240 host without a second screen keeps the HUD beside the field", async () => {

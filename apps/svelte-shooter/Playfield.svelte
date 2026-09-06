@@ -41,6 +41,7 @@
   import type { Game } from "./game/state.ts";
   import { restart, stepGame, togglePause, useBomb, type Input } from "./game/step.ts";
   import { hud, refs, syncHud } from "./hud.svelte.ts";
+  import { createMusic } from "./music.ts";
   import { buildPresenter, type Presenter } from "./present.ts";
   import {
     SFX_BOMB,
@@ -112,6 +113,7 @@
   let presenter: Presenter | undefined;
 
   const sfx = createSfx();
+  const music = createMusic();
   const input: Input = { mx: 0, my: 0, fire: false, focus: false };
   let scroll = 0;
   let scoreShown = -1;
@@ -160,6 +162,10 @@
       jump(refs.bossBar, "opacity", b.alive ? 1 : 0);
     }
     if (ev & (EV_HUD | EV_MODE | EV_BOSS_ENTER)) syncHud(game);
+    if (ev & EV_MODE) {
+      if (game.mode === MODE_PAUSE) music.pause();
+      else if (game.mode === MODE_PLAY) music.resume();
+    }
 
     if (ev & EV_PLAYER_HIT) {
       sfx.play(SFX_DEATH);
@@ -215,6 +221,7 @@
     handleEvents();
     presenter.present(game, scroll, tile);
     sfx.pump();
+    music.pump();
     frame++;
   });
 
@@ -248,8 +255,10 @@
     });
     syncHud(game);
     presenter.present(game, scroll, tile);
+    music.play();
     return () => {
       sfx.dispose();
+      music.dispose();
       for (const n of pooled) if (n.parent) detachNode(n.parent, n);
       pooled.length = 0;
     };
