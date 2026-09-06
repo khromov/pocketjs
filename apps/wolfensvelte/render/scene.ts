@@ -2,13 +2,17 @@
 // pool of sprite slots, every per-frame value written through one jump batch
 // (one setPropBatch crossing per frame).
 //
-// A wall strip is an overflow-hidden view, STRIP_W wide and the view tall,
-// holding the 512x512 wall atlas as an image with a top-left origin. The core
-// clips the scaled atlas to the strip and re-interpolates UVs, so setting the
-// image's scaleY/translateX/translateY selects one texture column at one wall
-// height. A sprite slot is the same shape at 64x64, with the wrapper scaled to
-// the sprite's visible run and the child counter-scaled so the whole sprite
-// keeps its size while the run clips it against nearer walls.
+// A wall strip is an overflow-hidden view, STRIP_W wide and one texture cell
+// (64 px) tall, translated to the wall's top and scaled to the wall's height;
+// its scissor is therefore exactly the wall span, and the ceiling and floor
+// planes behind it stay untouched. Inside sits the 512x512 wall atlas as an
+// image with a top-left origin, offset so the wanted cell column lands under
+// the strip. The core clips the atlas to the strip and re-interpolates UVs, so
+// four batched values per strip (wrapper translateY/scaleY, image
+// translateX/translateY) select one texture column at one wall height. A
+// sprite slot is the same shape at 64x64, with the wrapper scaled to the
+// sprite's visible run and the child counter-scaled so the whole sprite keeps
+// its size while the run clips it against nearer walls.
 //
 // The small texel bias on the atlas offsets keeps the PSP's integer texel UVs
 // inside the intended cell when f32 rounding lands a hair under a cell edge. It
@@ -31,7 +35,7 @@ const HIDDEN = 1;
 const TOP_LEFT = -0.5;
 const TEXEL_BIAS = 0.05;
 
-const STRIP_PROPS = 3;
+const STRIP_PROPS = 4;
 const SPRITE_PROPS = 7;
 
 export class SceneRenderer {
@@ -59,17 +63,18 @@ export class SceneRenderer {
     for (let i = 0; i < this.columns; i++) {
       const strip = createElement("view");
       setProp(strip, "style", {
-        posType: ABSOLUTE, insetL: i * stripW, insetT: 0, width: stripW, height: viewH, overflow: HIDDEN,
+        posType: ABSOLUTE, insetL: i * stripW, insetT: 0, width: stripW, height: CELL_SIZE, overflow: HIDDEN,
+        originX: TOP_LEFT, originY: TOP_LEFT, scaleY: 0,
       });
       const img = createElement("image");
       setProp(img, "style", {
         posType: ABSOLUTE, insetL: 0, insetT: 0, width: ATLAS_SIZE, height: ATLAS_SIZE,
-        originX: TOP_LEFT, originY: TOP_LEFT, scaleX: stripW, scaleY: 0,
+        originX: TOP_LEFT, originY: TOP_LEFT, scaleX: stripW,
       });
       setProp(img, "src", WALL_ATLAS);
       insertNode(strip, img);
       insertNode(this.stripsRoot, strip);
-      entries.push([img, "scaleY"], [img, "translateX"], [img, "translateY"]);
+      entries.push([strip, "translateY"], [strip, "scaleY"], [img, "translateX"], [img, "translateY"]);
     }
 
     this.spriteBase = entries.length;
@@ -103,15 +108,17 @@ export class SceneRenderer {
     const base = i * STRIP_PROPS;
     const b = this.batch;
     if (wallH <= 0) {
-      b.set(base, 0);
+      b.set(base + 1, 0);
       return;
     }
     const cx = cell % ATLAS_COLS;
     const cy = (cell - cx) / ATLAS_COLS;
-    const scaleY = wallH / CELL_SIZE;
-    b.set(base, scaleY);
-    b.set(base + 1, -(cx * CELL_SIZE + texU + TEXEL_BIAS) * this.stripW);
-    b.set(base + 2, (this.viewH - wallH) * 0.5 - (cy * CELL_SIZE + TEXEL_BIAS) * scaleY);
+    // Wrapper: the wall span on screen. Image: the cell's column, in the
+    // wrapper's unscaled 64-px-tall space.
+    b.set(base, (this.viewH - wallH) * 0.5);
+    b.set(base + 1, wallH / CELL_SIZE);
+    b.set(base + 2, -(cx * CELL_SIZE + texU + TEXEL_BIAS) * this.stripW);
+    b.set(base + 3, -(cy * CELL_SIZE + TEXEL_BIAS));
   }
 
   /** One sprite: screen box (left, top, size), visible run [a, b), atlas `cell`. */
