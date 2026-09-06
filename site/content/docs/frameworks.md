@@ -308,8 +308,10 @@ Authoring rules specific to Svelte apps:
 - **Continuous motion rides the native channels** — sprite atlases, baked
   keyframe timelines, `animate()`/`jump()` and `setTextContent()` — rather than
   per-frame state, the same rule the other frameworks follow.
-- **A style object re-applies whenever anything it reads changes.** It is applied
-  from an attachment, and `setStyleObject` diffs per key, so unchanged keys never
+- **A style object re-applies whenever anything it reads changes.** Every host
+  prop of a primitive, `class`, `style`, `onPress`, `focusable` and `debugName`,
+  is written from one attachment through `setProp`, which skips values the node
+  already carries, and `setStyleObject` diffs per key, so unchanged keys never
   stomp a running tween. But a property under `animate()` must not also be a
   reactive value in that object, or the re-apply fights the animation. Snapshot
   it at init, which is Svelte's equivalent of Solid's `untrack`.

@@ -6,7 +6,7 @@
 Octane and Svelte. Svelte's bundle is the largest of the four against Solid, and
 nearly all of the difference is the framework runtime.
 
-Three rounds have landed. This document records all three, corrects the claims the
+Four rounds have landed. This document records all four, corrects the claims the
 first round's handoff made, and says what is left and what it is worth.
 
 ## Round 1 (commit `1439db3`): module aliasing
@@ -103,7 +103,7 @@ against the folded `cards` bundle, then reverted.
 | `render.js#_mount_inner`: fold the `if (!renderer)` DOM event-delegation branch | 938 B | the teardown loop keeps `handle_event_propagation` referenced; a string patch on one upstream file for under 1 KiB |
 | `reactivity/async.js#flatten`: drop the async half | 32 B | `async_derived`, `capture`, `restore` are pinned from other live functions' unentered branches, not from `flatten` |
 
-## Round 3 (this commit): function-body stubs
+## Round 3 (commit `798c44d`): function-body stubs
 
 ### What was found
 
@@ -162,6 +162,30 @@ Left out on purpose:
 gzip. Six demos, Svelte against Solid: **1.87x → 1.82x** raw, **1.60x → 1.56x**
 gzipped. Runtime against runtime, minified, geometric mean over the six: 3.54x →
 3.40x.
+
+## Round 4 (this commit): the library primitives write props themselves
+
+`View`, `Text`, `Image`, `Sprite` and `CompositorSurface` carried `class`,
+`focusable`, `debugName`, `src`, `sprite`, `package` and `focused` as element
+attributes, so the compiler emitted a `template_effect` calling `set_class` and
+`set_attribute` per instance, and those pulled `dom/elements/class.js`,
+`dom/elements/attributes.js`, `shared/attributes.js` and `clsx` into every bundle
+for work `setProp` already does. Each primitive now writes every host prop from
+one attachment through `applyHostProps` (`framework/src/svelte/props.ts`); the
+`nodeRef` attachment stays separate so it still fires once, after the props.
+No app touches a raw host element, so nothing else referenced that machinery and
+it shook out.
+
+Measured, `cards`, Svelte runtime slice: 86.3 → 83.1 KiB normalised, 43.3 → 41.7
+KiB minified. Each primitive instance creates two effects instead of three.
+`REPORT.md`: `cards` 242.4 → 237.1 KiB raw; six demos against Solid **1.82x →
+1.78x** raw, **1.56x → 1.53x** gzipped. `TABLE.md` holds the per-framework
+comparison with the compiled components included.
+
+What is left in the adapter is not adapter fat: `index-svelte.ts` is the same
+size as Solid's entry, and `renderer-svelte.ts` is the fragment and comment
+plumbing Svelte's renderer contract requires, which Solid keeps inside
+`universal.js` instead.
 
 ## What is left, and what it is
 

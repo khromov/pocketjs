@@ -1,17 +1,12 @@
 <script lang="ts">
-  import { applyPress, applyStyle, type NodeMirror, type ViewProps } from "./props.ts";
+  import { applyHostProps, type NodeMirror, type ViewProps } from "./props.ts";
 
   let { class: className, style, onPress, focusable, debugName, nodeRef, children }: ViewProps =
     $props();
 </script>
 
 <view
-  class={className}
-  focusable={focusable}
-  debugName={debugName}
-  {@attach (node: NodeMirror) => {
-    applyStyle(node, style);
-    applyPress(node, onPress);
-  }}
+  {@attach (node: NodeMirror) =>
+    applyHostProps(node, { class: className, style, onPress, focusable, debugName })}
   {@attach (node: NodeMirror) => nodeRef?.(node)}
 >{@render children?.()}</view>

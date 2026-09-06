@@ -1,10 +1,17 @@
-// Shared prop shapes and the two helpers every host primitive needs.
+// Shared prop shapes and the one helper every host primitive needs.
 //
-// `class`, `focusable` and `debugName` ride the element's own attributes —
-// Svelte hands those through to the renderer as raw values. `style` and
-// `onPress` cannot: a `style` attribute is CSS text, and an always-registered
-// press wrapper would swallow the CIRCLE bubble that input.ts walks to the
-// nearest ancestor with a handler. Both are applied from an attachment instead.
+// Every host prop is written from a single attachment through `setProp`, the
+// same call the other frameworks' primitives make. Nothing rides the element's
+// own attributes: a `class=` or `focusable=` attribute would compile to
+// Svelte's `set_class` / `set_attribute` and pull its attribute cache, class
+// normaliser and `clsx` into the bundle for work `setProp` already does, and a
+// `style` attribute is CSS text the native tree has no parser for. `onPress`
+// has a second reason: an always-registered press wrapper would swallow the
+// CIRCLE bubble that input.ts walks to the nearest ancestor with a handler.
+//
+// The attachment re-runs when any prop it reads changes; `setProp` compares
+// each value against the node's last write, so only the changed prop reaches
+// the host.
 
 import type { Snippet } from "svelte";
 import { setProp, type NodeMirror } from "../renderer-svelte.ts";
@@ -63,10 +70,7 @@ export function resolveActive(active: boolean | (() => boolean) | undefined): bo
   return active ?? true;
 }
 
-export function applyStyle(node: NodeMirror, style: StyleObject | undefined): void {
-  setProp(node, "style", style, node.domAttrs?.style);
-}
-
-export function applyPress(node: NodeMirror, onPress: (() => void) | undefined): void {
-  setProp(node, "onPress", onPress);
+/** Write every host prop in `props` to `node`, skipping values the node already carries. */
+export function applyHostProps(node: NodeMirror, props: Record<string, unknown>): void {
+  for (const name in props) setProp(node, name, props[name], node.domAttrs?.[name]);
 }

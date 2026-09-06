@@ -1,13 +1,10 @@
 <script lang="ts">
-  import { applyStyle, type NodeMirror, type SpriteProps } from "./props.ts";
+  import { applyHostProps, type NodeMirror, type SpriteProps } from "./props.ts";
 
   let { class: className, sprite, style, debugName, nodeRef }: SpriteProps = $props();
 </script>
 
 <image
-  class={className}
-  sprite={sprite}
-  debugName={debugName}
-  {@attach (node: NodeMirror) => applyStyle(node, style)}
+  {@attach (node: NodeMirror) => applyHostProps(node, { class: className, sprite, style, debugName })}
   {@attach (node: NodeMirror) => nodeRef?.(node)}
 ></image>
