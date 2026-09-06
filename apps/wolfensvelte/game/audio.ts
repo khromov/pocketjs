@@ -1,9 +1,9 @@
 // Sound over the PocketJS audio module (PSP today; absent on the 3DS, where
 // every call is a no-op). Effects use three round-robin voices so a shot, a
 // door and a bark can overlap; music holds a fourth stream and loops. Each
-// track decodes once from the pak, as a view over the pak bytes.
+// track decodes once, as a view over the pak bytes (never a copy).
 
-import { pakGet } from "@pocketjs/framework/svelte";
+import { pakView } from "@pocketjs/framework/svelte";
 import { audioHost, createWavPlayer, decodeWav, type WavPcm, type WavPlayer } from "@pocketjs/framework/svelte/audio";
 
 const VOICES = 3;
@@ -19,7 +19,9 @@ function pcmFor(name: string): WavPcm | null {
   let pcm = cache.get(name);
   if (!pcm) {
     try {
-      pcm = decodeWav(pakGet(`audio:wav.${name}`));
+      // A view, not a copy: the music tracks are megabytes, and a copy into
+      // the QuickJS heap fails on the console (a failed track stays silent).
+      pcm = decodeWav(pakView(`audio:wav.${name}`));
     } catch {
       missing.add(name);
       return null;

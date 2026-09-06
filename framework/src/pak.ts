@@ -116,6 +116,18 @@ export function get(key: string): Uint8Array {
   return bytes!.slice(e.off, e.off + e.len);
 }
 
+/**
+ * A blob as a VIEW over the pack's own buffer: no copy, so a multi-megabyte
+ * asset (a music track) costs no heap on the console. The view lives as long
+ * as the pack; callers that must outlive it, or write, use get().
+ */
+export function view(key: string): Uint8Array {
+  ensureLoaded();
+  const e = map ? map.get(key) : undefined;
+  if (!e) throw new Error("pak: missing key " + key);
+  return new Uint8Array(bytes!.buffer, bytes!.byteOffset + e.off, e.len);
+}
+
 /** Advisory element dtype (spec PAK_DTYPE) of a blob; throws if absent. */
 export function dtypeOf(key: string): number {
   ensureLoaded();

@@ -291,4 +291,4 @@ export { retain, release, runSweep, registerTexture, registerSprite, missCounter
 // with no state commit behind it.
 export { setTextContent } from "./native-tree.ts";
 export { registerStyles, resolveStyle } from "./styles.ts";
-export { entries as pakEntries, get as pakGet, loadPack, resetPack } from "./pak.ts";
+export { entries as pakEntries, get as pakGet, view as pakView, loadPack, resetPack } from "./pak.ts";
