@@ -1,9 +1,14 @@
 #!/usr/bin/env bun
 // vapor/compiler/cli.ts — compile a Pocket Vapor component to a cartridge.
 //
-//   bun vapor/compiler/cli.ts <component.tsx> [--target gba|gb|nes|esp32|playdate] [--out dist/vapor]
+//   bun vapor/compiler/cli.ts <component.tsx|.svelte> [--target gba|gb|nes|esp32|playdate] [--out dist/vapor]
 //     [--playdate-mode simulator|device|both]
-//   bun vapor/compiler/cli.ts check <component.tsx> [--strict] [--json]
+//   bun vapor/compiler/cli.ts check <component.tsx|.svelte> [--strict] [--json]
+//
+// A .svelte entry goes through the Svelte front end (svelte.ts): the file is
+// lowered to the Vue-subset TSX and compiled by the same back end, and every
+// diagnostic is reported at its .svelte location. A build also writes the
+// generated <name>.vapor.tsx next to the artifacts.
 //
 // `check` runs the compiler frontend for EVERY target and prints the
 // diagnostics matrix — the compile-time answer to "which devices can run
@@ -15,17 +20,37 @@
 
 import { basename, join, resolve } from "node:path";
 import { admitBoard, listBoards, loadBoard, POCKET_PAD, type BoardIssue } from "./boards.ts";
-import { compileVaporApp, VAPOR_TARGETS, type CompiledApp, type VaporTargetName } from "./compile.ts";
+import {
+  compileVaporApp,
+  VAPOR_TARGETS,
+  type CompiledApp,
+  type CompileOptions,
+  type VaporTargetName,
+} from "./compile.ts";
 import { buildRom } from "./rom.ts";
 import type { PlaydateBuildMode } from "./playdate.ts";
+import { compileSvelteApp } from "./svelte.ts";
 
 let args = process.argv.slice(2);
+
+/** Route a .svelte entry through the front end; .tsx goes straight to the back end. */
+function compileEntry(
+  entry: string,
+  source: string,
+  title: string,
+  target: VaporTargetName,
+  options: CompileOptions & { importBase?: string },
+): CompiledApp & { tsx?: string } {
+  return entry.endsWith(".svelte")
+    ? compileSvelteApp(entry, source, title, target, options)
+    : compileVaporApp(entry, source, title, target, options);
+}
 
 if (args[0] === "check") {
   args = args.slice(1);
   const entry = args.find((a) => !a.startsWith("--"));
   if (!entry) {
-    console.error("usage: bun vapor/compiler/cli.ts check <component.tsx> [--strict] [--json]");
+    console.error("usage: bun vapor/compiler/cli.ts check <component.tsx|.svelte> [--strict] [--json]");
     process.exit(2);
   }
   const strict = args.includes("--strict");
@@ -49,7 +74,7 @@ if (args[0] === "check") {
     const t = VAPOR_TARGETS[target];
     const grid = `${t.width}x${t.height}`;
     try {
-      const app = compileVaporApp(entry, source, "CHECK", target, { strict });
+      const app = compileEntry(entry, source, "CHECK", target, { strict });
       apps[target] = app;
       targets[target] = {
         ok: true,
@@ -108,7 +133,7 @@ if (args[0] === "check") {
 const entry = args.find((a) => !a.startsWith("--"));
 if (!entry) {
   console.error(
-    "usage: bun vapor/compiler/cli.ts <component.tsx> [--target gba|gb|nes|esp32|playdate] " +
+    "usage: bun vapor/compiler/cli.ts <component.tsx|.svelte> [--target gba|gb|nes|esp32|playdate] " +
       "[--out <dir>] [--playdate-mode simulator|device|both]",
   );
   process.exit(2);
@@ -135,13 +160,19 @@ if (target !== "playdate" && playdateModeIdx >= 0) {
 }
 
 const source = await Bun.file(entry).text();
-const name = basename(entry).replace(/\.tsx$/, "");
-const app = compileVaporApp(
+const name = basename(entry).replace(/\.(tsx|svelte)$/, "");
+const app = compileEntry(
   entry,
   source,
   name.startsWith("todo") ? "VAPOR TODO" : name.toUpperCase(),
   target,
+  { importBase: outDir },
 );
+if (app.tsx !== undefined) {
+  // the lowered program, loadable by the Vue oracle and readable by a human
+  await Bun.write(join(outDir, `${name}.vapor.tsx`), app.tsx);
+  console.log(`${join(outDir, `${name}.vapor.tsx`)}  (generated program)`);
+}
 
 console.log(`== reactive graph (${target}) ==`);
 console.log(app.graph);

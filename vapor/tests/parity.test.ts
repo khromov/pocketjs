@@ -1,7 +1,9 @@
 // vapor/test/parity.test.ts — the Pocket Vapor claim, executed on three consoles.
 //
-// One tape of button presses drives FOUR implementations of todo.tsx:
-//   oracle: real vue 3.6 runtime-with-vapor over the micro-DOM (JS),
+// One tape of button presses drives FOUR implementations of each todo app
+// (todo.tsx on the Vue front end, todo.svelte on the Svelte front end):
+//   oracle: the real framework runtime over the micro-DOM (JS) — vue 3.6
+//           runtime-with-vapor, or Svelte 5 through the custom renderer —
 //           booted per target with that console's screen geometry
 //   GBA:    compiled ARM7 in headless libmgba          (30x20)
 //   GB:     compiled SM83 (sdcc) in headless libmgba   (20x18)
@@ -16,14 +18,41 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { $ } from "bun";
-import { compileVaporApp, VAPOR_TARGETS, type VaporTargetName } from "../compiler/compile.ts";
+import {
+  compileVaporApp,
+  VAPOR_TARGETS,
+  type CompiledApp,
+  type VaporTargetName,
+} from "../compiler/compile.ts";
 import type { StyleTable } from "../compiler/styles.ts";
 import { buildRom } from "../compiler/rom.ts";
-import { bootOracle } from "../oracle/boot.ts";
+import { compileSvelteApp } from "../compiler/svelte.ts";
+import { bootOracle, type OracleFramework } from "../oracle/boot.ts";
 import { TODO_TAPE } from "./todo-tape.ts";
 
 const HERE = import.meta.dir;
-const ENTRY = join(HERE, "..", "examples", "todo", "todo.tsx");
+
+interface TodoApp {
+  name: string;
+  entry: string;
+  framework: OracleFramework;
+  compile: (entry: string, source: string, title: string, target: VaporTargetName) => CompiledApp;
+}
+
+const APPS: TodoApp[] = [
+  {
+    name: "todo",
+    entry: join(HERE, "..", "examples", "todo", "todo.tsx"),
+    framework: "vue-vapor",
+    compile: compileVaporApp,
+  },
+  {
+    name: "todo-svelte",
+    entry: join(HERE, "..", "examples", "todo-svelte", "todo.svelte"),
+    framework: "svelte",
+    compile: compileSvelteApp,
+  },
+];
 const OUT = join(HERE, "..", "..", "dist", "vapor");
 const MGBA_RUNNER = join(HERE, "harness", "mgba_runner");
 const NES_RUNNER = join(HERE, "harness", "nes_runner.ts");
@@ -49,7 +78,7 @@ interface TargetRig {
   run: (rom: string, scenario: string) => Promise<string>;
 }
 
-let appStyles: StyleTable; // set in beforeAll from the compile
+const appStyles = new Map<string, StyleTable>(); // per app, set in beforeAll from the compile
 
 const RIGS: TargetRig[] = [
   {
@@ -141,18 +170,19 @@ function decodeGrid(
   return { chars, pals, vramChars, vramStyles };
 }
 
-const deviceRuns = new Map<VaporTargetName, { steps: DeviceStep[]; trips: number }>();
+const deviceRuns = new Map<string, { steps: DeviceStep[]; trips: number }>();
+const runKey = (app: TodoApp, rig: TargetRig) => `${app.name}/${rig.name}`;
 
 beforeAll(async () => {
   if (!existsSync(MGBA_RUNNER)) await $`bun ${join(HERE, "harness", "build.ts")}`.quiet();
-  const source = await Bun.file(ENTRY).text();
 
-  for (const rig of RIGS) {
+  for (const todo of APPS) for (const rig of RIGS) {
+    const source = await Bun.file(todo.entry).text();
     const t = VAPOR_TARGETS[rig.name];
     const cells = t.width * t.height;
-    const app = compileVaporApp(ENTRY, source, "VAPOR TODO", rig.name);
-    appStyles = app.styles;
-    const rom = join(OUT, `todo.${rig.ext}`);
+    const app = todo.compile(todo.entry, source, "VAPOR TODO", rig.name);
+    appStyles.set(todo.name, app.styles);
+    const rom = join(OUT, `${todo.name}.${rig.ext}`);
     await buildRom(app, rig.name, rom);
 
     const vramLen = (rig.vram.orgY + t.height) * rig.vram.stride * rig.vram.entrySize;
@@ -167,7 +197,7 @@ beforeAll(async () => {
       lines.push(...probeLines(i + 1));
     });
     lines.push(`R trips 0x${rig.tripsAddr.toString(16)} 1`);
-    const scenario = join(OUT, `parity-${rig.name}.txt`);
+    const scenario = join(OUT, `parity-${todo.name}-${rig.name}.txt`);
     await Bun.write(scenario, lines.join("\n") + "\n");
 
     const out = await rig.run(rom, scenario);
@@ -186,16 +216,23 @@ beforeAll(async () => {
         ),
       );
     }
-    deviceRuns.set(rig.name, { steps, trips: parsed.reads.trips as number });
+    deviceRuns.set(runKey(todo, rig), { steps, trips: parsed.reads.trips as number });
   }
-}, 120000);
+}, 240000);
 
-describe("oracle == device, three consoles", () => {
-  for (const rig of RIGS) {
-    test(`${rig.name}: every step of the tape renders identically`, async () => {
+describe("oracle == device, three consoles, two front ends", () => {
+  for (const todo of APPS) for (const rig of RIGS) {
+    const label = `${todo.name}/${rig.name}`;
+    test(`${label}: every step of the tape renders identically`, async () => {
       const t = VAPOR_TARGETS[rig.name];
-      const oracle = await bootOracle({ width: t.width, height: t.height, styles: appStyles });
-      const { steps } = deviceRuns.get(rig.name)!;
+      const styles = appStyles.get(todo.name)!;
+      const oracle = await bootOracle({
+        framework: todo.framework,
+        width: t.width,
+        height: t.height,
+        styles,
+      });
+      const { steps } = deviceRuns.get(runKey(todo, rig))!;
       const compare = (step: number, label: string) => {
         const want = oracle.grid();
         const got = steps[step];
@@ -206,7 +243,7 @@ describe("oracle == device, three consoles", () => {
           );
           // the player's screen, not just the logical grid: decoded VRAM
           expect(`${label} y=${y} vram: ${got.vramChars[y]}`).toBe(`${label} y=${y} vram: ${want.chars[y]}`);
-          const styleMap = appStyles.lower(rig.name).styleMap;
+          const styleMap = styles.lower(rig.name).styleMap;
           const wantStyle =
             rig.name === "gba"
               ? want.pals[y].join(",")
@@ -216,16 +253,16 @@ describe("oracle == device, three consoles", () => {
           );
         }
       };
-      compare(0, `${rig.name} boot`);
+      compare(0, `${label} boot`);
       for (let i = 0; i < TODO_TAPE.length; i++) {
         await oracle.press(TODO_TAPE[i]);
-        compare(i + 1, `${rig.name} step ${i} (btn ${TODO_TAPE[i]})`);
+        compare(i + 1, `${label} step ${i} (btn ${TODO_TAPE[i]})`);
       }
       oracle.unmount();
     });
 
-    test(`${rig.name}: no runtime tripwires fired`, () => {
-      expect(deviceRuns.get(rig.name)!.trips).toBe(0);
+    test(`${label}: no runtime tripwires fired`, () => {
+      expect(deviceRuns.get(runKey(todo, rig))!.trips).toBe(0);
     });
   }
 });

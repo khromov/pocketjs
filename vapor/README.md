@@ -172,6 +172,22 @@ Vapor in your browser — inspectable DOM rows, keyboard as the pad,
 `?target=esp32` to preview the MeowBit viewport, or `?target=playdate` for
 the 50×30 one-bit contract.
 
+## Svelte
+
+The same back end takes a Svelte 5 component. `examples/todo-svelte/todo.svelte`
+is the Todo above written with `$state`/`$derived`, `{#each}`/`{#if}` and
+six child `.svelte` components; `compiler/svelte.ts` lowers it to the
+Vue-subset TSX and the unchanged compiler emits the same C, byte for byte.
+The oracle is real Svelte 5 through a custom renderer over the same
+micro-DOM, and `tests/svelte-parity.test.ts` compares it with real Vue on the
+generated program after every press — no toolchain needed. `DESIGN.md` §6.5
+states the lowering, the rejected constructs and the parity claim.
+
+```sh
+bun vapor/compiler/cli.ts vapor/examples/todo-svelte/todo.svelte   # → todo-svelte's ROM + todo.vapor.tsx
+bun vapor/compiler/cli.ts check vapor/examples/todo-svelte/todo.svelte
+```
+
 ## Commands
 
 The ESP32 `flash` and default `verify` commands below write the connected
@@ -194,6 +210,8 @@ bun run vapor:esp32:verify                                 # build + flash + rep
 bun vapor/scripts/play.ts                                 # build + open in mGBA
 bun vapor/scripts/dev.ts [app.tsx]                        # visible oracle in the browser
 bun vapor/compiler/cli.ts check <app.tsx> [--strict]      # cross-target diagnostics matrix
+bun run vapor:svelte                                      # → the Svelte Todo through the same back end
+bun run vapor:svelte:check                                # diagnostics matrix, reported at .svelte lines
 bun vapor/scripts/shot.ts                                 # bake docs screenshots
 bun test vapor/tests/                                     # oracle + compiler + 3-console parity + shared device tape
 ```
@@ -219,14 +237,15 @@ arithmetic and bit masks come from a ROM table.
 vapor/
   DESIGN.md            the thesis + subset + target/style contracts
   examples/todo/       portable Todo + Playdate relative-axis input variant
+  examples/todo-svelte/ the same Todo as Svelte 5 runes + six child components
   host/                input.ts (buttons + relative axes), screen.ts (SCREEN geometry)
-  oracle/              micro-DOM + grid painter + bundle boot (real vue)
-  compiler/            compile.ts (TS AST → C), styles.ts (class DSL), rom.ts, cli.ts
+  oracle/              micro-DOM + grid painter + bundle boot (real vue, real svelte)
+  compiler/            compile.ts (TS AST → C), svelte.ts (.svelte → TSX), styles.ts (class DSL), rom.ts, cli.ts
   runtime/             vapor.h contract + vapor_core.c (shared grid/strings/line)
   runtime/gba|gb|nes/  per-console halves: crt0, video commit, input, debug block
   runtime/esp32/       ESP-IDF loop, ST7735 RGB565 raster, buttons, UART receipt
   runtime/playdate/    SDK lifecycle, raw 1bpp framebuffer, buttons + crank adapter
   scripts/             dev.ts (visible oracle), play.ts, shot.ts, esp32.ts (device protocol)
-  tests/               styles + compiler + oracle + 3-console parity + shared device tape
+  tests/               styles + compiler + oracle + svelte front end + 3-console parity + shared device tape
   tests/harness/       headless libmgba runner (GBA+GB) + jsnes runner (NES)
 ```

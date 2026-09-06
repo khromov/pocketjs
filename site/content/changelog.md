@@ -3,6 +3,20 @@
 Engine and site milestones, newest first. Versions track the
 `@pocketjs/framework` npm package.
 
+## Unreleased
+
+- **Pocket Vapor compiles Svelte.** A `.svelte` component written with
+  `$state`/`$derived`, `{#each}`/`{#if}` and the `<row>` vocabulary goes
+  through a source-to-source front end (`vapor/compiler/svelte.ts`) into the
+  Vue-subset program the unchanged back end compiles to C for GBA, Game Boy,
+  NES, ESP32 and Playdate. `vapor/examples/todo-svelte/` is the Todo with six
+  child `.svelte` components; it lowers to the same reactive graph, memory
+  plan and C as `todo.tsx`, byte for byte. The oracle is real Svelte 5 through
+  a custom renderer over the micro-DOM, and `svelte-parity.test.ts` compares
+  it with real Vue on the generated program after every press of the shared
+  tape, with Bun alone. Diagnostics (`VSV100`–`VSV113` and the back end's own)
+  report `.svelte` locations; `bun run vapor:svelte:check` prints the matrix.
+
 ## 0.11.0 — August 30, 2026
 
 **Two more device families run PocketJS, a second backend class paints through gpui and measures text on the host, and a paired Nintendo 3DS takes new guests over Wi-Fi.**

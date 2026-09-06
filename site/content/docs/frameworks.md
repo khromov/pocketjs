@@ -323,6 +323,12 @@ Authoring rules specific to Svelte apps:
   "svelte"`. Snippets live in the template, not in `<script>`, so a Solid table of
   component thunks becomes an `{#if}` ladder or a `{#key}` block. That remount is
   also how you restart a subtree's baked timelines.
+- **The same runes-and-components model has an ahead-of-time path.** Pocket
+  Vapor's Svelte front end (`vapor/compiler/svelte.ts`) compiles a `$state`/
+  `$derived` + `<row>` subset to C for the Game Boy Advance, Game Boy, NES,
+  ESP32 and Playdate, with no JS engine on the device: `bun run vapor:svelte`
+  builds the Todo in `vapor/examples/todo-svelte/`, and `vapor/DESIGN.md` §6.5
+  states the subset, the lowering and the parity claim against real Svelte.
 
 ## What stays shared
 

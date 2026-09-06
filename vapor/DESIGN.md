@@ -278,6 +278,81 @@ runtime owns the ESP-IDF frame loop, ST7735 RGB565 raster, MeowBit GPIO
 input and the UART receipt protocol. The Playdate runtime owns the SDK event
 handler, pushed-button snapshots, and direct 52-byte-stride 1bpp framebuffer.
 
+## 6.5 The Svelte front end
+
+The same back end compiles a second authoring language. A component written
+as Svelte 5 with runes and the `<row>` vocabulary
+(`vapor/examples/todo-svelte/todo.svelte`) goes through
+`vapor/compiler/svelte.ts`, which lowers it to the Vue-subset TSX of §4 and
+hands that text to `compileVaporApp`. **The back end, the style DSL, SCCP,
+the memory plan, the target runtimes and the `check` matrix are unchanged;
+the front end is one TypeScript module and touches no C.**
+
+```
+todo.svelte ─┬─ svelte/compiler + oracle/renderer-svelte.ts ──► real Svelte 5 app (oracle)
+             │
+             └─ vapor/compiler/svelte.ts ──► todo.vapor.tsx ─┬─► compile.ts ──► gen_app.c
+                 parse (svelte/compiler)                     │
+                 text edits + line map                       └─► real Vue Vapor app (second oracle)
+```
+
+The lowering is source to source. Svelte's `parse` (public API, modern AST)
+returns every node with `start`/`end` offsets; the front end copies
+expression and statement text character for character — **TypeScript
+annotations survive, because the back end needs `ref<Todo[]>` and
+`(d: number)`** — and makes these edits:
+
+| Svelte | generated TSX |
+|---|---|
+| `let x = $state(seed)`, `$state<T>(seed)`, `let x: T = $state(seed)` | `const x = ref<T>(seed)` |
+| `const d = $derived(e)` / `$derived.by(f)` | `const d = computed(() => e)` / `computed(f)` |
+| a reference to a rune, `count` | `count.value` |
+| `interface`, `type`, a `const` with a literal initializer | module level (the back end folds module consts and rejects types in setup) |
+| `function f(d: number) {…}`, keymaps, `onButton(…)` | setup body, as written |
+| `<row y={…} x={…} class=…>text {e}</row>` | `<row …>{"text "}{e}</row>` |
+| `{#each list as t, i}<X …/>{/each}` | `{list.value.map((t, i) => <X …/>)}`; `{:else}` → `{list.value.length === 0 ? <X/> : null}` |
+| `{#if c}<X/>{:else if d}<Y/>{:else}<Z/>{/if}` | `{c ? <X/> : null}{!(c) && d ? <Y/> : null}{!(c) && !(d) ? <Z/> : null}` |
+| `import Foo from "./Foo.svelte"` with `let { a, b }: { a: T; b: U } = $props()` | `function Foo(props: { a: T; b: U }) { return <row …/>; }`, references `a` → `props.a` |
+| `import type { T } from "./types.ts"` | the declaration text, at module level |
+
+Whitespace follows Svelte's own rules (`clean_nodes`): text runs at the
+edges of an element are trimmed, a run between text and a non-text node
+collapses to one space, and whitespace next to an `{expression}` is kept
+because Svelte renders the two as one text node. Row text becomes `{"…"}`
+string expressions, which JSX's whitespace rules leave untouched. **A row's
+text may not span lines: a newline would paint as `?`.**
+
+Every generated line records its `.svelte` line. A diagnostic the back end
+raises names the generated file; `compileSvelteApp` rewrites it through that
+map, so `check` and the CLI report `.svelte` locations. Columns are exact on
+lines without an inserted `.value`.
+
+Out (`VSV100`–`VSV113`, compile errors): `$effect`, `$inspect`, `$bindable`,
+`$host`, `$state.raw`, a rune outside a top-level declaration, a plain
+top-level `let`, imports other than the host modules, type-only `.ts` files
+and child `.svelte` files, `{@const}`, `{#await}`, `{#key}`, `{@html}`,
+snippets, `bind:`, DOM events, `class:`/`style:` directives, `<svelte:*>`,
+`<style>`, `$props()` on the root, a rune name shadowed by a parameter or
+local, a child component with state or with more than one `<row>`. The
+budgets and shapes of §4 apply after lowering and are reported at the
+`.svelte` line.
+
+The oracle is real Svelte. `vapor/oracle/renderer-svelte.ts` implements
+Svelte's custom-renderer contract over the micro-DOM of `oracle/dom.ts`, and
+`boot.ts` compiles each `.svelte` with `svelte/compiler` against that
+renderer, with the option set the interpreted framework uses in
+`framework/compiler/svelte-compile.ts`. **Svelte compares a component's
+renderer with the mount renderer by identity**, so the compiled `$renderer`
+import and `entry-svelte.ts` resolve to one module. Nodes are created through
+the `__vaporDocument` global rather than a bundled copy of `dom.ts`, so the
+painter's `instanceof` checks hold. The claim, executed by
+`vapor/tests/svelte-parity.test.ts` with Bun alone: **`todo.svelte` lowers to
+the same reactive graph, memory plan and C as `todo.tsx` on every console
+target, and real Svelte on the `.svelte` paints the same grid as real Vue on
+the generated TSX after every press of the shared tape at every target
+geometry.** ROM parity follows from `parity.test.ts`, which drives both front
+ends' cartridges when the toolchains are present.
+
 ## 7. E2E: the oracle is real Vue
 
 `vapor/tests/`:
@@ -309,6 +384,10 @@ handler, pushed-button snapshots, and direct 52-byte-stride 1bpp framebuffer.
    Vue Vapor oracle with signed Primary-axis deltas.
    Separate SDK smoke builds validate Simulator and ARM device packages;
    physical display/input verification remains manual.
+6. **Svelte front end** (`svelte-front.test.ts`, `svelte-oracle.test.ts`,
+   `svelte-parity.test.ts`) — lowering rules and `VSV` diagnostics at
+   `.svelte` locations; the todo behaviors under real Svelte 5 over the
+   micro-DOM; and the two parity claims of §6.5, with Bun alone.
 
 Layers 3 and 4 state the claim of the whole project: same file, real Vue on
 a JS engine, and native code on devices, compared for every step of the

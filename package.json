@@ -312,7 +312,9 @@
     "esp-idf:native": "bun tools/esp-idf-native.ts",
     "esp-idf:release": "bun tools/esp-idf-release.ts",
     "vapor:dev": "bun vapor/scripts/dev.ts",
-    "vapor:check": "bun vapor/compiler/cli.ts check vapor/examples/todo/todo.tsx"
+    "vapor:check": "bun vapor/compiler/cli.ts check vapor/examples/todo/todo.tsx",
+    "vapor:svelte": "bun vapor/compiler/cli.ts vapor/examples/todo-svelte/todo.svelte",
+    "vapor:svelte:check": "bun vapor/compiler/cli.ts check vapor/examples/todo-svelte/todo.svelte"
   },
   "dependencies": {
     "@vue/compiler-sfc": "3.6.0-rc.1",
