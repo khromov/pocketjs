@@ -35,9 +35,11 @@ describe("Svelte shooter", () => {
     const world = await bootWorld(APP, 60);
     await run(world, 4);
     const tree = world.getTree();
-    for (const text of ["SVELTE SHOOTER", "SCORE", "0000000", "LIVES 3", "BOMBS 3", "LOCK OFF", "STAGE 1"]) {
+    for (const text of ["SVELTE SHOOTER", "SCORE", "LIVES 3", "BOMBS 3", "LOCK OFF", "STAGE 1"]) {
       expect(treeHasText(tree, text)).toBe(true);
     }
+    // The score is a row of digit images (the tree carries no image sources).
+    expect(JSON.stringify(tree)).toContain('"n":"Score"');
     expect(treeHasText(tree, "GAME OVER")).toBe(false);
   });
 
@@ -89,7 +91,6 @@ describe("Svelte shooter", () => {
     expect(treeHasText(tree, "GAME OVER")).toBe(false);
     expect(treeHasText(tree, "LIVES 3")).toBe(true);
     expect(treeHasText(tree, "BOMBS 3")).toBe(true);
-    expect(treeHasText(tree, "0000000")).toBe(true);
   });
 
   test("START pauses and resumes", async () => {

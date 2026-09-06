@@ -11,7 +11,6 @@
   // keeps four empty layer views in paint order and the pools are inserted
   // into them at mount.
   import { onMount, untrack } from "svelte";
-  import { setTextContent } from "@pocketjs/framework/svelte";
   import { jump } from "@pocketjs/framework/svelte/animation";
   import { Image, Text, View } from "@pocketjs/framework/svelte/components";
   import type { NodeMirror } from "@pocketjs/framework/svelte/components";
@@ -40,7 +39,7 @@
   } from "./game/constants.ts";
   import type { Game } from "./game/state.ts";
   import { restart, stepGame, togglePause, useBomb, type Input } from "./game/step.ts";
-  import { hud, refs, syncHud } from "./hud.svelte.ts";
+  import { hud, refs, syncHud, updateScore } from "./hud.svelte.ts";
   import { createMusic } from "./music.ts";
   import { buildPresenter, type Presenter } from "./present.ts";
   import {
@@ -117,7 +116,6 @@
   const input: Input = { mx: 0, my: 0, fire: false, focus: false };
   let scroll = 0;
   let scoreShown = -1;
-  let frame = 0;
   let shotParity = 0;
   let hitParity = 0;
 
@@ -137,12 +135,6 @@
       togglePause(game);
     }
   });
-
-  function pad7(n: number): string {
-    let s = String(n);
-    while (s.length < 7) s = "0" + s;
-    return s;
-  }
 
   /** Turn this frame's event bits into sounds, tweens and HUD writes. */
   function handleEvents(): void {
@@ -183,11 +175,11 @@
     }
     if ((ev & EV_MODE) !== 0 && game.mode === MODE_CLEAR) sfx.play(SFX_CLEAR);
 
-    // The score is the one value that changes every few frames: written
-    // straight to the text node, at most ten times a second.
-    if (frame % 6 === 0 && game.score !== scoreShown && refs.score) {
-      setTextContent(refs.score, pad7(game.score));
+    // The score changes almost every frame in a dense pattern: only the
+    // digits that moved are re-pointed, and never through layout.
+    if (game.score !== scoreShown) {
       scoreShown = game.score;
+      updateScore(scoreShown);
     }
   }
 
@@ -222,7 +214,6 @@
     presenter.present(game, scroll, tile);
     sfx.pump();
     music.pump();
-    frame++;
   });
 
   onMount(() => {

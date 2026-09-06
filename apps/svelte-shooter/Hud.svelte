@@ -6,13 +6,14 @@
   import { Image, Text, View } from "@pocketjs/framework/svelte/components";
   import type { NodeMirror } from "@pocketjs/framework/svelte/components";
   import { MODE_CLEAR, MODE_OVER, MODE_PAUSE } from "./game/constants.ts";
-  import { hud, refs } from "./hud.svelte.ts";
+  import { SCORE_DIGITS, hud, refs } from "./hud.svelte.ts";
 
   let { w, h, aux }: { w: number; h: number; aux: boolean } = $props();
 
   /** A side panel under 160 px (a 400x240 host with no second screen) drops a size. */
   const narrow = untrack(() => w) < 160;
 
+  const DIGITS = Array.from({ length: SCORE_DIGITS }, (_, i) => i);
   const LIFE_SLOTS = [0, 1, 2];
   const BOMB_SLOTS = [0, 1, 2];
 
@@ -39,12 +40,11 @@
       {narrow ? "SHOOTER" : "SVELTE SHOOTER"}
     </Text>
     <Text class="text-xs text-slate-400 tracking-wide">SCORE</Text>
-    <Text
-      class={narrow ? "text-lg text-amber-300 font-bold" : "text-2xl text-amber-300 font-bold"}
-      nodeRef={(n: NodeMirror) => (refs.score = n)}
-    >
-      0000000
-    </Text>
+    <View debugName="Score" class="flex-row gap-1">
+      {#each DIGITS as i (i)}
+        <Image class={narrow ? "w-[12] h-[12]" : "w-[16] h-[16]"} src="art/n0.png" nodeRef={(n: NodeMirror) => (refs.digits[i] = n)} />
+      {/each}
+    </View>
   </View>
 
   <View class="flex-col gap-2">

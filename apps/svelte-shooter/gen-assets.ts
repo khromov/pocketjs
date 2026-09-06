@@ -50,6 +50,14 @@ const SPRITES: readonly Sprite[] = [
   { out: "boss.png", src: "PNG/ufoRed.png", box: [64, 64], drawn: 64 },
   { out: "shield.png", src: "PNG/Effects/shield1.png", box: [64, 64], drawn: 52, psm: 2 },
   { out: "life.png", src: "PNG/UI/playerLife1_blue.png", box: [16, 16], drawn: 16 },
+  // The score digits: a text node's update re-lays out the whole tree, a
+  // texture swap on an image node does not (apps/svelte-shooter/hud.svelte.ts).
+  ...[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((d) => ({
+    out: `n${d}.png`,
+    src: `PNG/UI/numeral${d}.png`,
+    box: [16, 16] as [number, number],
+    drawn: 16,
+  })),
   { out: "bg.png", src: "Backgrounds/darkPurple.png", box: [256, 256], drawn: 256, linear: true },
 ];
 
