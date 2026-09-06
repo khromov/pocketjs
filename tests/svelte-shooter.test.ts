@@ -100,6 +100,30 @@ describe("Svelte shooter", () => {
     expect(treeHasText(world.getTree(), "PAUSED")).toBe(false);
   });
 
+  test("a host with an auxiliary surface gets the HUD on the second screen", async () => {
+    // The 3DS shape: a 400x240 primary and a host-created 320x240 auxiliary
+    // root, published the way hosts/3ds does. The DevTools tree carries both
+    // roots, so the bottom-screen legend proves which branch mounted.
+    const world = await bootWorld(
+      APP,
+      60,
+      undefined,
+      (ops) => {
+        const host = ops as { createNode: (type: number) => number; __auxiliarySurface?: unknown };
+        host.__auxiliarySurface = { root: host.createNode(0), w: 320, h: 240 };
+      },
+      { width: 400, height: 240 },
+    );
+    await run(world, 4);
+    await press(world, BTN.RTRIGGER);
+    await run(world, 60, BTN.CROSS);
+    const tree = world.getTree();
+    expect(treeHasText(tree, "B  FIRE + SLOW")).toBe(true);
+    expect(treeHasText(tree, "CROSS  FIRE")).toBe(false);
+    expect(treeHasText(tree, "LOCK ON")).toBe(true);
+    expect(treeHasText(tree, "LIVES 3")).toBe(true);
+  });
+
   test("a 400x240 host without a second screen keeps the HUD beside the field", async () => {
     const world = await bootWorld(APP, 60, undefined, undefined, { width: 400, height: 240 });
     await run(world, 4);
