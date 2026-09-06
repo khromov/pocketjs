@@ -10,11 +10,11 @@ export const SEED = 0x9e3779b9;
 export const FIELD_REF_W = 288;
 
 // Player -------------------------------------------------------------------
-export const PLAYER_SPEED = 2.6;
-/** Holding fire slows the ship for threading dense patterns. */
-export const FOCUS_SPEED = 1.3;
-/** Hit radius of the core dot, not the sprite. */
-export const PLAYER_R = 2.5;
+export const PLAYER_SPEED = 2.8;
+/** Holding fire slows the ship to a third for threading dense patterns. */
+export const FOCUS_SPEED = 0.9;
+/** Hit radius: the 2 px core dot drawn at the sprite centre, nothing more. */
+export const PLAYER_R = 1;
 /** Bullets passing inside this radius (but outside PLAYER_R) score a graze once. */
 export const GRAZE_R = 11;
 export const PLAYER_MARGIN = 14;
@@ -38,9 +38,9 @@ export const GRAZE_SCORE = 10;
 export const KIND_RED = 0;
 export const KIND_BLUE = 1;
 export const KIND_GREEN = 2;
-export const KIND_SLOTS = [80, 48, 64] as const;
+export const KIND_SLOTS = [176, 176, 160] as const;
 export const KIND_R = [4.5, 5, 3] as const;
-export const MAX_EBULLETS = 192;
+export const MAX_EBULLETS = 512;
 export const MAX_PBULLETS = 24;
 
 // Enemies ------------------------------------------------------------------

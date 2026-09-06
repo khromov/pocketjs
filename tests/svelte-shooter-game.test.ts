@@ -80,7 +80,7 @@ describe("svelte-shooter level", () => {
         deaths.push(g.t);
       }
     }
-    expect(deaths).toEqual([206, 444, 609]);
+    expect(deaths).toEqual([226, 506, 666]);
     expect(g.mode).toBe(MODE_OVER);
   });
 
@@ -102,7 +102,8 @@ describe("svelte-shooter level", () => {
     expect(phases).toBe(4);
     expect(g.t).toBeGreaterThan(BOSS_AT);
     expect(g.eb.peak).toBeLessThanOrEqual(MAX_EBULLETS);
-    expect(g.eb.peak).toBeGreaterThan(80); // the boss actually fills the screen
+    expect(g.eb.peak).toBeGreaterThan(250); // the boss actually fills the screen
+    expect(g.eb.dropped).toBe(0); // and no pattern starves its kind
     expect(g.pb.peak).toBeLessThanOrEqual(MAX_PBULLETS);
     expect(g.en.peak).toBeLessThanOrEqual(MAX_ENEMIES);
   });

@@ -27,6 +27,8 @@ export interface BulletPool {
   count: number;
   /** High-water mark of `count`; the tests size the pools with it. */
   peak: number;
+  /** Spawns refused because the kind was full; the tests keep it at zero. */
+  dropped: number;
 }
 
 function resetBulletStacks(p: BulletPool): void {
@@ -70,6 +72,7 @@ export function createBulletPool(kindSlots: readonly number[]): BulletPool {
     freeTop: new Int16Array(kinds),
     count: 0,
     peak: 0,
+    dropped: 0,
   };
   resetBulletStacks(p);
   return p;
@@ -86,7 +89,10 @@ export function spawnBullet(
   r: number,
 ): number {
   const top = p.freeTop[kind];
-  if (top === 0) return -1;
+  if (top === 0) {
+    p.dropped++;
+    return -1;
+  }
   const i = p.free[p.kindStart[kind] + top - 1];
   p.freeTop[kind] = top - 1;
   p.x[i] = x;
@@ -120,6 +126,7 @@ export function clearBullets(p: BulletPool): void {
 export function resetBulletPool(p: BulletPool): void {
   clearBullets(p);
   p.peak = 0;
+  p.dropped = 0;
 }
 
 export interface EnemyPool {

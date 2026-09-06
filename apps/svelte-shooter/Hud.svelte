@@ -2,6 +2,7 @@
   // The status panel: beside the playfield on a single screen, on the bottom
   // screen of the 3DS. Every value is a whole text run ("LIVES 2", "LOCK ON")
   // so the sim tests can read the game through the tree.
+  import { untrack } from "svelte";
   import { Image, Text, View } from "@pocketjs/framework/svelte/components";
   import type { NodeMirror } from "@pocketjs/framework/svelte/components";
   import { MODE_CLEAR, MODE_OVER, MODE_PAUSE } from "./game/constants.ts";
@@ -10,7 +11,7 @@
   let { w, h, aux }: { w: number; h: number; aux: boolean } = $props();
 
   /** A side panel under 160 px (a 400x240 host with no second screen) drops a size. */
-  const narrow = w < 160;
+  const narrow = untrack(() => w) < 160;
 
   const LIFE_SLOTS = [0, 1, 2];
   const BOMB_SLOTS = [0, 1, 2];

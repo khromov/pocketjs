@@ -10,7 +10,7 @@ import {
   TYPE_SCORE,
 } from "./constants.ts";
 import { PATH_EXIT, stepEnemyMove } from "./paths.ts";
-import { angleTo, fireAimed, fireFan, fireRing, fireSpiral } from "./patterns.ts";
+import { angleTo, fireFan, fireRing, fireSpiral } from "./patterns.ts";
 import { killEnemy } from "./pools.ts";
 import { pushFx, type Game } from "./state.ts";
 
@@ -29,31 +29,31 @@ function fireEnemyPattern(g: Game, i: number): void {
   const eb = g.eb;
   switch (en.pattern[i]) {
     case PAT_AIMED:
-      fireAimed(eb, x, y, g.px, g.py, 1.8, KIND_RED);
-      en.fireCd[i] = 60;
+      fireFan(eb, x, y, angleTo(x, y, g.px, g.py), 3, 0.28, 1.15, KIND_RED);
+      en.fireCd[i] = 50;
       break;
     case PAT_FAN3:
-      fireFan(eb, x, y, angleTo(x, y, g.px, g.py), 3, 0.35, 1.7, KIND_RED);
-      en.fireCd[i] = 48;
+      fireFan(eb, x, y, angleTo(x, y, g.px, g.py), 5, 0.55, 1.1, KIND_RED);
+      en.fireCd[i] = 40;
       break;
     case PAT_FAN5:
-      fireFan(eb, x, y, angleTo(x, y, g.px, g.py), 5, 0.9, 1.9, KIND_RED);
-      en.fireCd[i] = 42;
+      fireFan(eb, x, y, angleTo(x, y, g.px, g.py), 9, 1.3, 1.2, KIND_RED);
+      en.fireCd[i] = 36;
       break;
     case PAT_RING12:
       en.phase[i] += 0.2;
-      fireRing(eb, x, y, 12, 1.3, en.phase[i], KIND_BLUE);
-      en.fireCd[i] = 60;
+      fireRing(eb, x, y, 24, 0.9, en.phase[i], KIND_BLUE);
+      en.fireCd[i] = 45;
       break;
     case PAT_RING16:
       en.phase[i] += 0.15;
-      fireRing(eb, x, y, 16, 1.2, en.phase[i], KIND_BLUE);
-      en.fireCd[i] = 75;
+      fireRing(eb, x, y, 32, 0.85, en.phase[i], KIND_BLUE);
+      en.fireCd[i] = 50;
       break;
     case PAT_SPIRAL2:
-      en.phase[i] += 0.17;
-      fireSpiral(eb, x, y, en.phase[i], 2, 1.7, KIND_GREEN);
-      en.fireCd[i] = 4;
+      en.phase[i] += 0.13;
+      fireSpiral(eb, x, y, en.phase[i], 3, 1.1, KIND_GREEN);
+      en.fireCd[i] = 3;
       break;
   }
 }

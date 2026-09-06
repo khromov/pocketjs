@@ -3,7 +3,7 @@
   // presenter each frame. Input is decoded here and handed to the headless
   // game (game/step.ts); the game's event bits drive sounds, tweens and the
   // HUD store on the way back.
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
   import { setTextContent } from "@pocketjs/framework/svelte";
   import { animate, jump } from "@pocketjs/framework/svelte/animation";
   import { Image, Text, View } from "@pocketjs/framework/svelte/components";
@@ -45,7 +45,10 @@
     createSfx,
   } from "./sfx.ts";
 
-  let { game, w, h }: { game: Game; w: number; h: number } = $props();
+  let { game: gameProp, w: wProp, h }: { game: Game; w: number; h: number } = $props();
+  // The game and the field size are fixed for the component's life: read once.
+  const game = untrack(() => gameProp);
+  const w = untrack(() => wProp);
 
   const range = (n: number, from = 0): number[] => Array.from({ length: n }, (_, i) => from + i);
   // Slot ranges mirror the pool partitions: one texture per kind and type.
@@ -231,7 +234,8 @@
   <View debugName="Player" class="absolute w-[32] h-[32]" style={{ insetL: -16, insetT: -16 }} nodeRef={(n: NodeMirror) => (playerNode = n)}>
     <Image class="absolute w-[64] h-[64]" src="art/shield.png" style={{ insetL: -16, insetT: -16, opacity: 0 }} nodeRef={(n: NodeMirror) => (shieldNode = n)} />
     <Image class="absolute w-[32] h-[32]" src="art/ship.png" style={{ insetL: 0, insetT: 0 }} />
-    <View class="absolute w-[4] h-[4] rounded-full bg-white" style={{ insetL: 14, insetT: 14 }} />
+    <View class="absolute w-[8] h-[8] rounded-full bg-[#ffffff55]" style={{ insetL: 12, insetT: 12 }} />
+    <View class="absolute w-[2] h-[2] bg-white" style={{ insetL: 15, insetT: 15 }} />
   </View>
 
   {#each RED as i (i)}

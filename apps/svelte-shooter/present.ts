@@ -58,15 +58,23 @@ export function buildPresenter(nodes: PresenterNodes): Presenter {
   entries.push([need(nodes.bgA, "background A"), "translateY"], [need(nodes.bgB, "background B"), "translateY"]);
   const batch: JumpBatch = createJumpBatch(entries);
   const total = entries.length;
+  // Batch records persist between commits, so a slot's opacity is written
+  // only when it appears or vanishes: two writes per live sprite per frame.
+  const shown = new Uint8Array(SH0 / 3);
 
   function pool(p: BulletPool | EnemyPool, base: number): void {
     for (let i = 0; i < p.n; i++) {
       const k = base + i * 3;
+      const s = k / 3;
       if (p.alive[i]) {
         batch.set(k, p.x[i]);
         batch.set(k + 1, p.y[i]);
-        batch.set(k + 2, 1);
-      } else {
+        if (!shown[s]) {
+          shown[s] = 1;
+          batch.set(k + 2, 1);
+        }
+      } else if (shown[s]) {
+        shown[s] = 0;
         batch.set(k + 2, 0);
       }
     }
@@ -105,6 +113,7 @@ export function buildPresenter(nodes: PresenterNodes): Presenter {
     },
     hideAll() {
       for (let k = 0; k < SH0; k += 3) batch.set(k + 2, 0);
+      shown.fill(0);
       batch.set(SH0, 0);
       if (total !== BG0 + 2) throw new Error("svelte-shooter: presenter entry layout drifted");
       batch.commit();
