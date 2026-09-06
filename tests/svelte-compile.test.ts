@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { transformFile } from "../framework/compiler/jsx-plugin.ts";
 import { compileSvelte, compileSvelteModule } from "../framework/compiler/svelte-compile.ts";
-import { foldSvelteConstants } from "../framework/compiler/svelte-fold.ts";
+import {
+  SVELTE_STUBBED_FUNCTIONS,
+  foldSvelteConstants,
+  stubSvelteFunctions,
+  transformSvelteRuntime,
+} from "../framework/compiler/svelte-fold.ts";
 
 const COUNTER = `
 <script lang="ts">
@@ -240,5 +245,106 @@ describe("build-time constants in the Svelte runtime", () => {
 
     expect(out).not.toContain("flags/index.js");
     expect(out).toContain("export const v = [false, true, false, false];");
+  });
+});
+
+describe("function-body stubs in the Svelte runtime", () => {
+  const ASYNC = "/repo/node_modules/svelte/src/internal/client/reactivity/async.js";
+  const SRC = [
+    `import { get } from '../runtime.js';`,
+    `export function capture() {`,
+    `\tvar previous = get(1);`,
+    `\tfunction restore() {`,
+    `\t\treturn previous;`,
+    `\t}`,
+    `\treturn restore;`,
+    `}`,
+    `export function increment_pending(n = 1) {`,
+    `\treturn n;`,
+    `}`,
+    `export function unset_context() {}`,
+    `export function flatten(a) {`,
+    `\treturn a;`,
+    `}`,
+  ].join("\n");
+
+  test("replaces each listed body with a throw and keeps the signature", () => {
+    const out = stubSvelteFunctions(ASYNC, SRC)!;
+
+    expect(out).toContain(
+      `export function capture() {\n\tthrow new Error('svelte: capture() is unreachable on a PocketJS host');\n}`,
+    );
+    expect(out).toContain(`export function increment_pending(n = 1) {\n\tthrow new Error(`);
+    expect(out).not.toContain("function restore()");
+    expect(out).not.toContain("var previous");
+    // Everything not listed is untouched.
+    expect(out).toContain(`export function flatten(a) {\n\treturn a;\n}`);
+    expect(out).toContain(`import { get } from '../runtime.js';`);
+  });
+
+  test("leaves an indented method of the same name alone", () => {
+    const src = [
+      `class Batch {`,
+      `\tcapture(source, value) {`,
+      `\t\tthis.v = value;`,
+      `\t}`,
+      `}`,
+      `export function capture() {`,
+      `\treturn 1;`,
+      `}`,
+      `export function increment_pending() {}`,
+      `export function unset_context() {}`,
+    ].join("\n");
+    const out = stubSvelteFunctions(ASYNC, src)!;
+
+    expect(out).toContain(`\tcapture(source, value) {\n\t\tthis.v = value;\n\t}`);
+    expect(out).toContain(`export function capture() {\n\tthrow new Error(`);
+  });
+
+  test("fails the build when a listed name is not declared exactly once", () => {
+    expect(() => stubSvelteFunctions(ASYNC, `export function capture() {}`)).toThrow(
+      /expected one top-level declaration of increment_pending\(\)/,
+    );
+    expect(() => stubSvelteFunctions(ASYNC, SRC + `\nfunction capture() {}`)).toThrow(/found 2/);
+  });
+
+  test("returns undefined for a module with no listed functions", () => {
+    expect(stubSvelteFunctions("/repo/node_modules/svelte/src/internal/client/runtime.js", SRC)).toBeUndefined();
+  });
+
+  test("every listed function is declared once in the vendored runtime", async () => {
+    const root = new URL("../node_modules/svelte/src/internal/client/", import.meta.url);
+    const files = {
+      deriveds: "reactivity/deriveds.js",
+      async: "reactivity/async.js",
+      events: "dom/elements/events.js",
+      operations: "dom/operations.js",
+    };
+    let matched = 0;
+    for (const rel of Object.values(files)) {
+      const path = new URL(rel, root);
+      const src = await Bun.file(path).text();
+      const out = stubSvelteFunctions(path.pathname, src);
+      if (out === undefined) continue;
+      matched += 1;
+      for (const name of SVELTE_STUBBED_FUNCTIONS.find((t) => t.module.test(path.pathname))!.names) {
+        expect(out).toContain(`function ${name}(`);
+        expect(out).toContain(`svelte: ${name}() is unreachable on a PocketJS host`);
+      }
+    }
+    expect(matched).toBe(SVELTE_STUBBED_FUNCTIONS.length);
+  });
+
+  test("the combined transform folds and then stubs", () => {
+    const src = [
+      `import { DEV } from 'esm-env';`,
+      `export function capture() { if (DEV) { debug(); } return 1; }`,
+      `export function increment_pending() {}`,
+      `export function unset_context() {}`,
+    ].join("\n");
+    const out = transformSvelteRuntime(ASYNC, src)!;
+
+    expect(out).not.toContain("esm-env");
+    expect(out).toContain(`export function capture() {\n\tthrow new Error(`);
   });
 });

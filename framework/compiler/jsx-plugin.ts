@@ -9,7 +9,7 @@ import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { compileVueSfc } from "./vue-sfc-compile.ts";
 import { compileSvelte, compileSvelteModule } from "./svelte-compile.ts";
-import { foldSvelteConstants } from "./svelte-fold.ts";
+import { transformSvelteRuntime } from "./svelte-fold.ts";
 import {
   propsHelperCode,
   propsHelperId,
@@ -717,7 +717,7 @@ export function jsxPlugin(
         // build fixes so the bundler drops them. See svelte-fold.ts.
         build.onLoad({ filter: SVELTE_RUNTIME_FILE }, async (args) => {
           const src = await Bun.file(args.path).text();
-          const folded = foldSvelteConstants(args.path, src);
+          const folded = transformSvelteRuntime(args.path, src);
           return folded === undefined ? undefined : { contents: folded, loader: "js" };
         });
         build.onLoad({ filter: /\.svelte(?:\.[jt]s)?$/ }, async (args) => {

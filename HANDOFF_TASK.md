@@ -6,8 +6,8 @@
 Octane and Svelte. Svelte's bundle is the largest of the four against Solid, and
 nearly all of the difference is the framework runtime.
 
-Two rounds have landed. This document records both, corrects the claims the first
-round's handoff made, and says what is left and what it is worth.
+Three rounds have landed. This document records all three, corrects the claims the
+first round's handoff made, and says what is left and what it is worth.
 
 ## Round 1 (commit `1439db3`): module aliasing
 
@@ -18,7 +18,7 @@ under `framework === "svelte"`: `dom/elements/custom-element.js` (pins itself wi
 `typeof HTMLElement` block at module scope and drags `legacy/legacy-client.js` in),
 `dom/elements/bindings/input.js` and `bindings/size.js`. 11,358 bytes raw per demo.
 
-## Round 2 (this commit): folding build-time constants
+## Round 2 (commit `c25d18b`): folding build-time constants
 
 ### What was found
 
@@ -103,12 +103,72 @@ against the folded `cards` bundle, then reverted.
 | `render.js#_mount_inner`: fold the `if (!renderer)` DOM event-delegation branch | 938 B | the teardown loop keeps `handle_event_propagation` referenced; a string patch on one upstream file for under 1 KiB |
 | `reactivity/async.js#flatten`: drop the async half | 32 B | `async_derived`, `capture`, `restore` are pinned from other live functions' unentered branches, not from `flatten` |
 
+## Round 3 (this commit): function-body stubs
+
+### What was found
+
+After the fold, 67 functions in the Svelte part of the `cards` bundle were still
+never entered across every demo journey. Reading each call site sorted them into
+two kinds: closed by a fact PocketJS controls, or merely not exercised. Only the
+first kind is safe to remove, and it is small: the callers test something no
+constant expresses (`flatten` checks `async.length`, `mount()`'s DOM delegation
+checks `!renderer`, the hydration tails sit after an early `return` Bun keeps), so
+the fold could not reach them and Bun cannot drop a declaration with a live
+reference.
+
+**Correction to the sizes quoted while chasing this.** The per-function ranking
+measured whitespace-stripped bytes, not renamed-minified ones. The 7 KB estimate
+for this lever was normalised; minified it is 1.7 KiB.
+
+### What was done
+
+`SVELTE_STUBBED_FUNCTIONS` in `framework/compiler/svelte-fold.ts` names seven
+top-level functions in four files. `stubSvelteFunctions` replaces each body with a
+throw and keeps the signature; `transformSvelteRuntime` runs the fold and then the
+stubs, and is what the plugin's onLoad rule calls. A listed name that is not
+declared exactly once at column 0 fails the build, so a vendor refresh that moves
+or renames one cannot ship a stale table. `tests/svelte-compile.test.ts` also
+checks every entry against the vendored source.
+
+| Function | File | Why every caller is closed |
+| --- | --- | --- |
+| `async_derived` | `reactivity/deriveds.js` | compiler runs without `experimental.async` |
+| `capture`, `increment_pending`, `unset_context` | `reactivity/async.js` | only `flatten`'s async path and `async_derived` call them |
+| `handle_event_propagation` | `dom/elements/events.js` | DOM root delegation; `mount()` always has a renderer, `create_event` bypasses it under one |
+| `merge_text_nodes`, `insert_after` | `dom/operations.js` | hydration tails of `child`, `first_child`, `sibling`, `text` |
+
+Left out on purpose:
+
+- **`add_event_listener`, `remove_event_listener`.** Dead in the demos, but `$.event()`
+  reaches them for an `onpress` written on a raw `<view>`, which the renderer
+  supports. Not closed by construction.
+- **`run`, `finish`.** Nested inside `flatten`; the matcher takes top-level
+  declarations only, and `Batch.prototype.capture` shows why that matters.
+- **`get_label`, `tag`, `tag_proxy`.** Dev-only, pinned by `update_path`, a nested
+  declaration inside `proxy()` that Bun cannot remove. Under 300 bytes net.
+- **Everything reachable by a user app**: `move_effect` (keyed reorder),
+  `class_list_toggle` (`class:` directives), `invoke_error_boundary`,
+  `infinite_loop_guard`, `unmount`, `flush_eager_effects`, the `Batch` merge helpers.
+
+### Measured, `cards`, Svelte runtime slice
+
+| | raw | normalised | minified | gzip |
+| --- | ---: | ---: | ---: | ---: |
+| after round 2 | 129.8 KiB | 90.7 KiB | 45.0 KiB | 17.3 KiB |
+| after round 3 | 123.3 KiB | 86.3 KiB | 43.3 KiB | 16.6 KiB |
+| Solid, same demo | 31.7 KiB | 21.6 KiB | 12.6 KiB | 4.9 KiB |
+
+`REPORT.md`: `cards` 248.9 → 242.4 KiB raw, 98.3 → 96.6 KiB min, 34.8 → 34.1 KiB
+gzip. Six demos, Svelte against Solid: **1.87x → 1.82x** raw, **1.60x → 1.56x**
+gzipped. Runtime against runtime, minified, geometric mean over the six: 3.54x →
+3.40x.
+
 ## What is left, and what it is
 
-After the fold, 96 function declarations in the Svelte part of the bundle were never
-entered across every demo journey (28.5 KB minified before the fold; most of the
-dev, hydration and flag-guarded ones are gone now). What remains falls into shapes
-that are **not dead by construction**:
+Before round 2, 96 function declarations in the Svelte part of the bundle were never
+entered across every demo journey, 28.5 KB normalised. Rounds 2 and 3 took the ones
+closed by construction. What remains falls into shapes that are **not dead by
+construction**:
 
 - **Error paths**: `errors.js` factories, `error-handling.js` (`handle_error`,
   `invoke_error_boundary`), `infinite_loop_guard`. Reachable from any app that
@@ -116,15 +176,16 @@ that are **not dead by construction**:
 - **Reachable-in-principle branches** inside live functions: `class_list_toggle`
   (`class:` directives), `clear_text_content` (controlled each blocks), `unmount`,
   `teardown`, `mutable_source`. Keep.
-- **Async-mode machinery** pinned by unentered branches of live functions:
-  `async_derived` (2.1 KB), `capture`/`restore`/`unset_context`/`increment_pending`
-  (~2 KB), `batch.js#mark_effects`/`depends_on`. By construction unreachable without
-  `experimental.async`, but there is no constant to fold: `flatten` checks array
-  lengths, not the flag. This is an upstream item.
+- **Async-mode plumbing inside live functions**: the async path of `flatten`, the
+  fork, merge and skip paths of `Batch`, `mark_effects`, `depends_on`. Round 3 emptied
+  the helpers they call; the branches themselves stay because no constant closes
+  them. This is an upstream item.
 
-Nothing here is a stub-and-alias job. Module-level stubbing and constant folding are
-both exhausted; what remains is the function-level surgery the first handoff
-described, on code that a user app can reach.
+Module-level stubbing, constant folding and function-body stubbing are all
+exhausted. What remains is code a user app can reach, or branches inside `Batch`,
+`Boundary` and `operations.js` that only upstream can restructure. On `cards` the
+Svelte runtime is 3.4x Solid's minified; the gap is the scheduler, the blocks and the
+root boundary, which are what Svelte 5 is.
 
 ## How this was chased: empirical coverage
 
@@ -177,7 +238,7 @@ The instrumented bundles pass every journey, so the probes are behaviour-neutral
 ## Verification bar
 
 ```sh
-bun tools/test.ts --stage=svelte     # 33 unit + 42 journeys, frame hashes
+bun tools/test.ts --stage=svelte     # 39 unit + 42 journeys, frame hashes
 bunx tsc --noEmit
 bun run bundle-size                  # regenerates REPORT.md; diff the numbers
 ```
@@ -194,8 +255,9 @@ toolchain plus PPSSPP headless, which is not installed on this machine.
 The vendored Svelte is a build of **sveltejs/svelte#18511**, pinned as
 `vendor/svelte-5.57.0-6be4ab9.tgz` and refreshed by `tools/vendor-svelte.ts`. Every
 local workaround has to survive that refresh. `svelte-fold.ts` survives a refresh as
-long as the six names stay bare identifiers imported from the same three modules; the
-unit tests and the journeys catch a change to either.
+long as the six folded names stay bare identifiers imported from the same three
+modules and the seven stubbed functions stay top-level declarations in the same four
+files; the build, the unit tests and the journeys each catch a change.
 
 Worth raising:
 
@@ -206,6 +268,6 @@ Worth raising:
    Svelte's own build could inline it or expose the flags as `define`-able globals.
    Measured here at 15 KiB of runtime on `cards` for `DEV` alone. That is the number
    to lead with.
-4. **`flatten`'s async path** could check `async_mode_flag` before the array lengths,
-   which would let a non-async build drop `async_derived` and the async helpers
-   (~4 KB minified).
+4. **`flatten` and `Batch`** could check `async_mode_flag` before their async paths,
+   which would let a non-async build drop them and make round 3's async rows
+   unnecessary. About 4 KB normalised of branches beyond what round 3 removed.

@@ -1,6 +1,8 @@
-// Build-time constants for Svelte's client runtime on a PocketJS host, applied
+// Load-time treatment of Svelte's client runtime for a PocketJS host, applied
 // by framework/compiler/jsx-plugin.ts as an onLoad transform over
-// node_modules/svelte/src/**/*.js in framework=svelte bundles.
+// node_modules/svelte/src/**/*.js in framework=svelte bundles. Two tables:
+// build-time constants to fold (this half of the file) and function bodies to
+// replace with a throw (the second half).
 //
 // Svelte gates its dev-only, hydration and DOM-only code behind module-level
 // bindings that every PocketJS build resolves the same way but no bundler can
@@ -108,4 +110,88 @@ export function foldSvelteConstants(
   if (names.length === 0) return undefined;
   const pattern = new RegExp(`\\b(?:${names.join("|")})\\b`, "g");
   return rewritten.replace(pattern, (name) => folded[name]);
+}
+
+// ---------------------------------------------------------------------------
+// Function-body stubs
+//
+// What the fold cannot reach: functions that are unreachable on a PocketJS
+// host for one of the reasons above, but whose callers test something other
+// than a foldable binding — `flatten` checks `async.length`, `mount()`'s DOM
+// delegation checks `!renderer`, and the hydration tails sit after an early
+// `return` that Bun keeps. Bun cannot drop a declaration with a live
+// reference, so the body goes instead: each function below keeps its
+// signature and throws. Measured never entered across every demo journey; a
+// wrong entry surfaces as a thrown error in those journeys, not as a wrong
+// frame.
+//
+// Only top-level declarations are matched (column 0, closing brace at column
+// 0, as Prettier formats the vendored source). `Batch.prototype.capture` is a
+// different function from `reactivity/async.js#capture` and is not touched.
+
+interface StubbedFunctions {
+  /** The declaring module. */
+  readonly module: RegExp;
+  readonly names: readonly string[];
+  /** The fact that closes every caller. */
+  readonly why: string;
+}
+
+export const SVELTE_STUBBED_FUNCTIONS: readonly StubbedFunctions[] = [
+  {
+    module: /[\\/]internal[\\/]client[\\/]reactivity[\\/]deriveds\.js$/,
+    names: ["async_derived"],
+    why: "the compiler runs without experimental.async, so no component emits an await expression",
+  },
+  {
+    module: /[\\/]internal[\\/]client[\\/]reactivity[\\/]async\.js$/,
+    names: ["capture", "increment_pending", "unset_context"],
+    why: "only flatten()'s async path and async_derived() call these, and neither runs without experimental.async",
+  },
+  {
+    module: /[\\/]internal[\\/]client[\\/]dom[\\/]elements[\\/]events\.js$/,
+    names: ["handle_event_propagation"],
+    why: "DOM root event delegation; mount() always receives a renderer and create_event() bypasses it under one",
+  },
+  {
+    module: /[\\/]internal[\\/]client[\\/]dom[\\/]operations\.js$/,
+    names: ["merge_text_nodes", "insert_after"],
+    why: "called only from the hydration tails of child(), first_child(), sibling() and text()",
+  },
+];
+
+/**
+ * Replace the bodies of the functions listed for `path` with a throw. Returns
+ * undefined when `path` is not a listed module. Throws when a listed name is
+ * not declared exactly once at the top level, so a vendor refresh that moves
+ * or renames one fails the build instead of shipping a stale table.
+ */
+export function stubSvelteFunctions(path: string, src: string): string | undefined {
+  const normalized = path.replace(/\\/g, "/");
+  const table = SVELTE_STUBBED_FUNCTIONS.find((t) => t.module.test(normalized));
+  if (!table) return undefined;
+  let out = src;
+  for (const name of table.names) {
+    const head = `^((?:export )?(?:async )?function ${name}\\([^)]*\\)\\s*\\{)`;
+    const declarations = out.match(new RegExp(head, "gm")) ?? [];
+    if (declarations.length !== 1) {
+      throw new Error(
+        `svelte-fold: expected one top-level declaration of ${name}() in ${path}, found ${declarations.length}`,
+      );
+    }
+    // A multi-line body ends at the first closing brace in column 0; a body
+    // Prettier kept on one line ends at the last brace of that line.
+    const whole = new RegExp(`${head}(?:\\n[\\s\\S]*?\\n\\}|[^\\n]*\\})(?=\\n|$)`, "m").exec(out);
+    if (!whole) throw new Error(`svelte-fold: no closing brace for ${name}() in ${path}`);
+    const stub = `${whole[1]}\n\tthrow new Error('svelte: ${name}() is unreachable on a PocketJS host');\n}`;
+    out = out.slice(0, whole.index) + stub + out.slice(whole.index + whole[0].length);
+  }
+  return out;
+}
+
+/** The whole load-time treatment of one Svelte runtime file: fold, then stub. */
+export function transformSvelteRuntime(path: string, src: string): string | undefined {
+  const folded = foldSvelteConstants(path, src);
+  const stubbed = stubSvelteFunctions(path, folded ?? src);
+  return stubbed ?? folded;
 }
