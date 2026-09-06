@@ -68,7 +68,10 @@ export class Sfx {
 export class Music {
   readonly enabled: boolean;
   private readonly player: WavPlayer | null;
-  private current = "";
+  /** Track the app asked for. */
+  private wanted = "";
+  /** Track whose stream the host has accepted. */
+  private started = "";
 
   constructor() {
     this.enabled = audioHost() !== null;
@@ -76,28 +79,41 @@ export class Music {
     this.player?.setVolume(MUSIC_VOLUME);
   }
 
-  /** Start `name` from the top unless it is already the playing track. */
+  /** Ask for `name`; the stream opens on the next pump and is retried until the host accepts it. */
   play(name: string): void {
-    if (!this.player || this.current === name) return;
-    const pcm = pcmFor(name);
-    if (!pcm) return;
-    this.current = name;
-    if (this.player.loadPcm(pcm)) this.player.play();
+    this.wanted = name;
   }
 
   stop(): void {
-    this.current = "";
+    this.wanted = "";
+    this.started = "";
     this.player?.stop();
   }
 
-  /** Once per frame: feed the ring, and restart the track when it has ended. */
+  /** Once per frame: open the wanted track, feed the ring, restart a finished pass. */
   pump(): void {
     const p = this.player;
     if (!p) return;
+    if (this.wanted !== this.started) {
+      const pcm = this.wanted ? pcmFor(this.wanted) : null;
+      if (!pcm) {
+        // Missing from the pak: give up on this name; an empty wanted stops.
+        if (this.started) p.stop();
+        this.started = "";
+        this.wanted = "";
+        return;
+      }
+      // A refused stream (host not ready, no free slot) is tried again next frame.
+      if (!p.loadPcm(pcm)) return;
+      p.play();
+      this.started = this.wanted;
+      return;
+    }
+    if (!this.started) return;
     p.pump();
-    if (this.current && !p.playing()) {
-      // The player reports the host's "ended" event; stop() rewinds and
-      // flushes, play() starts the next pass on the following pump.
+    if (!p.playing()) {
+      // The host reported the pass ended: stop() rewinds and flushes, play()
+      // starts the next pass on the following pump.
       p.stop();
       p.play();
     }
