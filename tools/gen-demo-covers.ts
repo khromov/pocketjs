@@ -22,7 +22,7 @@ import { createCanvas, GlobalFonts, type SKRSContext2D } from "@napi-rs/canvas";
 import { mkdirSync } from "node:fs";
 import { runScenario } from "../hosts/sim/sim.ts";
 import { BTN } from "../contracts/spec/spec.ts";
-import { FRAMEWORKS, parseFramework } from "../framework/compiler/jsx-plugin.ts";
+import { FRAMEWORKS, parseFramework, type PocketFramework } from "../framework/compiler/jsx-plugin.ts";
 
 const ROOT = new URL("../", import.meta.url).pathname;
 GlobalFonts.registerFromPath(ROOT + "assets/fonts/Inter-Bold.ttf", "Inter");
@@ -30,6 +30,9 @@ GlobalFonts.registerFromPath(ROOT + "assets/fonts/Inter-Bold.ttf", "Inter");
 interface DemoCover {
   dir: string;
   bundle: string;
+  /** The framework the manifest declares when it is not Solid: the default
+   *  build of such a demo is the bundle with that framework's suffix. */
+  framework?: PocketFramework;
   title: string;
   /** Two-line wordmark next to the mark. */
   word: [string, string];
@@ -70,6 +73,33 @@ const DEMOS: DemoCover[] = [
       g.lineTo(46, 40);
       g.closePath();
       g.fill();
+    },
+  },
+  {
+    dir: "svelte-shooter",
+    bundle: "svelte-shooter-main",
+    framework: "svelte",
+    title: "PocketJS Svelte Shooter",
+    word: ["SVELTE", "SHOOTER"],
+    accent: "#f472b6",
+    seconds: 3.5,
+    // Lock the autofire on, slide left out of the first wave's dive.
+    script: [{ at: 0.5, press: BTN.RTRIGGER, hold: BTN.LEFT }, { at: 2.0, hold: 0 }],
+    mark: (g) => {
+      g.fillStyle = "#7dd3fc";
+      g.beginPath();
+      g.moveTo(34, 30);
+      g.lineTo(48, 58);
+      g.lineTo(34, 51);
+      g.lineTo(20, 58);
+      g.closePath();
+      g.fill();
+      g.fillStyle = "#f472b6";
+      for (const [x, y] of [[16, 22], [30, 14], [46, 20], [54, 34]] as const) {
+        g.beginPath();
+        g.arc(x, y, 3.5, 0, Math.PI * 2);
+        g.fill();
+      }
     },
   },
   {
@@ -268,7 +298,10 @@ for (const demo of selected) {
   // PIC1 — a real frame of the demo via the sim pump the goldens use.
   {
     const trace = await runScenario({
-      app: framework === null ? demo.bundle : demo.bundle + FRAMEWORKS[framework].outputSuffix,
+      app:
+        framework === null
+          ? demo.bundle + (demo.framework ? FRAMEWORKS[demo.framework].outputSuffix : "")
+          : demo.bundle + FRAMEWORKS[framework].outputSuffix,
       hz: 60,
       seconds: demo.seconds,
       script: demo.script,
