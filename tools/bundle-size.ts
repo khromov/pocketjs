@@ -426,6 +426,23 @@ function runtimeTable(results: Measurement[]): string {
   return head + body + "\n";
 }
 
+function runtimeSentence(results: Measurement[]): string {
+  const rt = (f: Framework) => find(results, "cards", f)?.attribution.norm.runtime ?? 0;
+  const sv = rt("svelte");
+  const say = (f: Framework) => {
+    const other = rt(f);
+    if (!other || !sv) return `${LABEL[f]} — not measured`;
+    const r = sv / other;
+    if (r >= 1.5 || r <= 0.67) return `**${r.toFixed(1)}x ${LABEL[f]}'s**`;
+    const pctDiff = Math.abs(100 * (r - 1));
+    if (pctDiff < 2) return `**level with ${LABEL[f]}'s**`;
+    return `**${pctDiff.toFixed(0)}% ${r > 1 ? "larger than" : "smaller than"} ${LABEL[f]}'s**`;
+  };
+  return `Normalised against each other on \`cards\`, Svelte's runtime is ${say("solid")}, ` +
+    `${say("vue-vapor")} and ${say("octane")}. Against Solid that runtime is most of the whole\n` +
+    `artifact, which is why the Svelte builds land near 2x.`;
+}
+
 function pakTable(results: Measurement[]): string {
   const order: Framework[] = ["solid", "vue-vapor", "octane", "svelte"];
   const demos = [...new Set(results.map((r) => r.demo))];
@@ -475,9 +492,7 @@ framework runtime**, which \`tools/build.ts\` inlines into one IIFE with no exte
 ${summarise(solidRows, "Solid")}
 ${summarise(vueRows, "Vue Vapor")}
 ${summarise(octaneRows, "Octane")}
-Normalised against each other, Svelte's runtime is **5.5x Solid's**, **5% larger
-than Vue Vapor's** and **27% smaller than Octane's**. Against Solid that runtime is
-most of the whole artifact, which is why the Svelte builds land near 2x.
+${runtimeSentence(results)}
 
 ## There is no React in this repository
 
@@ -559,6 +574,19 @@ That puts the four runtimes on equal terms despite arriving in different states.
 unlike \`hero\` its Solid variant is not inflated by doubling as a typecheck fixture.
 
 ${breakdownTable(results, "cards")}
+Svelte's figure is **after** the build drops three browser-DOM-only modules that
+its client barrel re-exports eagerly. \`svelte/internal/client/index.js\` is a flat
+barrel, and \`dom/elements/custom-element.js\` assigns at module scope inside
+\`if (typeof HTMLElement === 'function')\` — a bundler cannot prove that inert, so the
+module was pinned and dragged \`legacy/legacy-client.js\` in behind it. Aliasing
+\`custom-element.js\` and the two DOM binding modules to stubs
+(\`framework/src/svelte-dom-stubs.ts\`) removes 11,358 bytes raw, 7.3 KiB of the
+normalised runtime, and the last \`typeof HTMLElement\` probe in the artifact. The
+stubs themselves shake out to nothing, because no call site survives.
+
+The upstream fix belongs in sveltejs/svelte#18511, the custom-renderer PR this build
+is vendored from: the barrel wants a \`custom-renderer\` variant that omits these.
+
 The framework runtime alone, from the same builds:
 
 ${runtimeTable(results)}

@@ -66,6 +66,13 @@ const RESOLVED: Record<PocketFramework, Record<string, string>> = (() => {
 const OCTANE_PROFILING_STUB_PATH = fileURLToPath(
   new URL("../src/octane-profiling-stub.ts", import.meta.url),
 );
+const SVELTE_DOM_STUBS_PATH = fileURLToPath(
+  new URL("../src/svelte-dom-stubs.ts", import.meta.url),
+);
+/** Browser-DOM-only modules Svelte's client barrel re-exports. See
+ *  framework/src/svelte-dom-stubs.ts for why they cannot be shaken out. */
+const SVELTE_DOM_ONLY = /^\.\/dom\/elements\/(?:custom-element|bindings\/(?:input|size))\.js$/;
+const SVELTE_CLIENT_BARREL = "/node_modules/svelte/src/internal/client/index.js";
 const GENERATED_STYLES_PATH = fileURLToPath(
   new URL("../src/styles.generated.ts", import.meta.url),
 );
@@ -694,6 +701,14 @@ export function jsxPlugin(
         });
       }
       if (framework === "svelte") {
+        // The client barrel pulls the custom-element and DOM-binding modules in
+        // eagerly; none of them can run against the native tree. Aliasing them
+        // to stubs drops them and `legacy/legacy-client.js` with them.
+        build.onResolve({ filter: SVELTE_DOM_ONLY }, (args) =>
+          args.importer.replace(/\\/g, "/").endsWith(SVELTE_CLIENT_BARREL)
+            ? { path: SVELTE_DOM_STUBS_PATH }
+            : undefined,
+        );
         build.onLoad({ filter: /\.svelte(?:\.[jt]s)?$/ }, async (args) => {
           const src = await Bun.file(args.path).text();
           const { code } = await transformFile(args.path, src, framework, {
