@@ -103,10 +103,15 @@ try {
 const sdk = toolchain.sdk.path;
 
 // A bare component demo (apps/<app>/app.tsx exporting the component) needs
-// the mounting entry apps/<app>/main.tsx (imports mount() + STYLE_IDS).
+// the mounting entry apps/<app>/main.tsx (imports mount() + STYLE_IDS); a
+// Svelte demo mounts from apps/<app>/main.ts.
 function mountedAppName(arg: string): string {
   const bare = arg.replace(/\.tsx?$/, "").replace(/-main$/, "");
-  if (existsSync(`${pspUiDir}apps/${bare}/main.tsx`) || existsSync(`${pspUiDir}apps/${bare}-main.tsx`)) {
+  if (
+    existsSync(`${pspUiDir}apps/${bare}/main.tsx`) ||
+    existsSync(`${pspUiDir}apps/${bare}/main.ts`) ||
+    existsSync(`${pspUiDir}apps/${bare}-main.tsx`)
+  ) {
     return `${bare}-main`;
   }
   return arg;

@@ -36,6 +36,8 @@ import { $ } from "bun";
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { demoManifestFor } from "../../tools/demo-identity.ts";
+import { THREE_DS_VIEWPORT } from "../../tools/3ds-profile.ts";
+import { threeDsSvelteManifest, type Manifest } from "../../tools/3ds-svelte.ts";
 import { encodePNG } from "../png.ts";
 import {
   encodeThresholdInput,
@@ -305,6 +307,18 @@ const recordedStamp = existsSync(stampPath) ? readFileSync(stampPath, "utf8").tr
 let passed = 0;
 let failed = 0;
 
+/** The manifest a 3DS capture build of a Svelte demo sees, or null when the
+ *  committed one already declares the 3ds-dev display. */
+function threeDsManifestFor(original: string): string | null {
+  const manifest = JSON.parse(original) as Manifest & {
+    app: { viewport?: { fixed?: { logical?: readonly number[] } } };
+  };
+  const logical = manifest.app.viewport?.fixed?.logical;
+  const native = logical?.[0] === THREE_DS_VIEWPORT[0] && logical?.[1] === THREE_DS_VIEWPORT[1];
+  if (native || manifest.app.framework !== "svelte") return null;
+  return JSON.stringify(threeDsSvelteManifest(manifest), null, 2) + "\n";
+}
+
 for (const spec of specs) {
   // A spec name mirrors its app directory (`3ds-demo-main` -> apps/3ds-demo);
   // the .3dsx is named by the manifest's app.output, which is not the same
@@ -326,19 +340,32 @@ for (const spec of specs) {
     }
     // The tape and the capture window are baked into the binary: the guest
     // never reads them back off the emulator's filesystem at runtime.
-    const build = await $`bun tools/3ds.ts ${demo} --capture`
-      .cwd(ROOT)
-      .env({
-        ...process.env,
-        POCKETJS_CAPTURE_INPUT: encodeThresholdInput(spec),
-        // The generic host tape uses semicolons. The 3DS build flag uses @ so
-        // the baked value remains one shell argument through Make.
-        POCKETJS_CAPTURE_TOUCH: encodeTouchInput(spec).replaceAll(";", "@"),
-        POCKETJS_CAP_START: "0",
-        POCKETJS_CAP_N: String(capN),
-      })
-      .quiet()
-      .nothrow();
+    //
+    // A Svelte demo's committed manifest describes the PSP (480x272); the
+    // 3ds-dev profile rejects it at admission, so the build sees the same
+    // rewritten manifest tools/3ds-svelte.ts uses, restored afterwards.
+    const manifestPath = `${ROOT}apps/${demo}/pocket.json`;
+    const originalManifest = readFileSync(manifestPath, "utf8");
+    const rewritten = threeDsManifestFor(originalManifest);
+    if (rewritten) writeFileSync(manifestPath, rewritten);
+    let build;
+    try {
+      build = await $`bun tools/3ds.ts ${demo} --capture`
+        .cwd(ROOT)
+        .env({
+          ...process.env,
+          POCKETJS_CAPTURE_INPUT: encodeThresholdInput(spec),
+          // The generic host tape uses semicolons. The 3DS build flag uses @ so
+          // the baked value remains one shell argument through Make.
+          POCKETJS_CAPTURE_TOUCH: encodeTouchInput(spec).replaceAll(";", "@"),
+          POCKETJS_CAP_START: "0",
+          POCKETJS_CAP_N: String(capN),
+        })
+        .quiet()
+        .nothrow();
+    } finally {
+      if (rewritten) writeFileSync(manifestPath, originalManifest);
+    }
     if (build.exitCode !== 0) {
       console.error(`FAIL ${spec.name}: 3DS build failed\n${build.stdout}${build.stderr}`);
       failed += spec.capture.length;

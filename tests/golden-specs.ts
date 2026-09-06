@@ -255,6 +255,30 @@ export const GOLDEN_SPECS: GoldenSpec[] = [
  */
 export const THREE_DS_GOLDEN_SPECS: GoldenSpec[] = [
   {
+    name: "wolfensvelte",
+    frames: 250,
+    // Frame 2 is the title. START on frames 5-6 leaves it; Get Psyched holds
+    // 90 frames, so play begins near frame 97. The player walks (UP) into the
+    // first door, turns left, walks on and fires once (R). A tap on the bottom
+    // screen's knife button (frames 235-236) switches weapons through the
+    // auxiliary touch surface; frame 245 shows the knife selected on both the
+    // status bar and the button row.
+    capture: [2, 120, 170, 230, 245],
+    input: (f) =>
+      f >= 5 && f <= 6
+        ? BTN.START
+        : f >= 100 && f < 150
+          ? BTN.UP
+          : f >= 150 && f < 175
+            ? BTN.LEFT
+            : f >= 175 && f < 220
+              ? BTN.UP
+              : f >= 225 && f <= 227
+                ? BTN.RTRIGGER
+                : 0,
+    touch: (f) => (f >= 235 && f <= 236 ? [{ id: 0, x: 262, y: 78 }] : []),
+  },
+  {
     name: "3ds-demo",
     frames: 70,
     capture: [2, 10, 20, 44, 56, 64],

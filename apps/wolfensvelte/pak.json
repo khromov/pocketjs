@@ -1,0 +1,46 @@
+[
+  {
+    "key": "audio:wav.pistol",
+    "file": "sfx/pistol.wav"
+  },
+  {
+    "key": "audio:wav.smg",
+    "file": "sfx/smg.wav"
+  },
+  {
+    "key": "audio:wav.door-open",
+    "file": "sfx/door-open.wav"
+  },
+  {
+    "key": "audio:wav.door-close",
+    "file": "sfx/door-close.wav"
+  },
+  {
+    "key": "audio:wav.guard-halt",
+    "file": "sfx/guard-halt.wav"
+  },
+  {
+    "key": "audio:wav.guard-shoot",
+    "file": "sfx/guard-shoot.wav"
+  },
+  {
+    "key": "audio:wav.guard-death-1",
+    "file": "sfx/guard-death-1.wav"
+  },
+  {
+    "key": "audio:wav.guard-death-2",
+    "file": "sfx/guard-death-2.wav"
+  },
+  {
+    "key": "audio:wav.guard-death-3",
+    "file": "sfx/guard-death-3.wav"
+  },
+  {
+    "key": "audio:wav.dog-bark",
+    "file": "sfx/dog-bark.wav"
+  },
+  {
+    "key": "audio:wav.dog-death",
+    "file": "sfx/dog-death.wav"
+  }
+]

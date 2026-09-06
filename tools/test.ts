@@ -62,6 +62,8 @@ const SUITE: readonly Stage[] = [
       "tests/3ds-runtime-state.test.ts",
       "tests/3ds-runtime-wire.test.ts",
       "tests/3ds-svelte.test.ts",
+      "tests/wolfensvelte-raycast.test.ts",
+      "tests/wolfensvelte-world.test.ts",
       "tests/iphone2g-profile.test.ts",
       "tests/iphone4s-profile.test.ts",
       "tests/ipodtouch-profile.test.ts",
@@ -191,6 +193,7 @@ const SUITE: readonly Stage[] = [
       ["bun", "tools/build.ts", "launcher-main", "--framework=svelte"],
       ["bun", "tools/build.ts", "motions-main", "--framework=svelte"],
       ["bun", "tools/build.ts", "svelte-snake-main", "--framework=svelte"],
+      ["bun", "tools/build.ts", "wolfensvelte-main", "--framework=svelte"],
     ],
     browser: true,
     tests: [
@@ -198,6 +201,7 @@ const SUITE: readonly Stage[] = [
       "tests/svelte-lab.test.ts",
       "tests/svelte-demos.test.ts",
       "tests/svelte-snake.test.ts",
+      "tests/wolfensvelte.test.ts",
     ],
   },
   {

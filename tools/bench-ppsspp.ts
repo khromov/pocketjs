@@ -91,6 +91,9 @@ const SPECS: Spec[] = [
     capN: 100,
   },
   { app: "notifications", inputScript: "0:0,10:0x40,14:0,16:0x40,20:0,24:0x2000,28:0", capStart: 0, capN: 65 },
+  // Wolfensvelte: START past the title, then walk and turn through E1M1's
+  // first rooms with the raycaster live (0x10 = UP, 0x80 = LEFT).
+  { app: "wolfensvelte", inputScript: "0:0,20:0x8,24:0,120:0x10,220:0x80,260:0x10", capStart: 130, capN: 200 },
   {
     app: "music",
     inputScript: "0:0,4:0x40,8:0,10:0x2000,14:0,30:0x40,34:0,36:0x40,40:0,42:0x2000,46:0,70:0x0200,74:0",

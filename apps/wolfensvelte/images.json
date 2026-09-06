@@ -1,0 +1,146 @@
+{
+  "art/wall-atlas.png": {
+    "psm": 0
+  },
+  "art/sprite-atlas.png": {
+    "psm": 2
+  },
+  "art/hud-bar.png": {
+    "psm": 2
+  },
+  "art/digit-0.png": {
+    "psm": 2
+  },
+  "art/digit-1.png": {
+    "psm": 2
+  },
+  "art/digit-2.png": {
+    "psm": 2
+  },
+  "art/digit-3.png": {
+    "psm": 2
+  },
+  "art/digit-4.png": {
+    "psm": 2
+  },
+  "art/digit-5.png": {
+    "psm": 2
+  },
+  "art/digit-6.png": {
+    "psm": 2
+  },
+  "art/digit-7.png": {
+    "psm": 2
+  },
+  "art/digit-8.png": {
+    "psm": 2
+  },
+  "art/digit-9.png": {
+    "psm": 2
+  },
+  "art/hud-weapon-knife.png": {
+    "psm": 2
+  },
+  "art/hud-weapon-pistol.png": {
+    "psm": 2
+  },
+  "art/hud-weapon-smg.png": {
+    "psm": 2
+  },
+  "art/face-full-0.png": {
+    "psm": 2
+  },
+  "art/face-full-1.png": {
+    "psm": 2
+  },
+  "art/face-full-2.png": {
+    "psm": 2
+  },
+  "art/face-beat_up-0.png": {
+    "psm": 2
+  },
+  "art/face-beat_up-1.png": {
+    "psm": 2
+  },
+  "art/face-beat_up-2.png": {
+    "psm": 2
+  },
+  "art/face-hurt-0.png": {
+    "psm": 2
+  },
+  "art/face-hurt-1.png": {
+    "psm": 2
+  },
+  "art/face-hurt-2.png": {
+    "psm": 2
+  },
+  "art/face-low_hp-0.png": {
+    "psm": 2
+  },
+  "art/face-low_hp-1.png": {
+    "psm": 2
+  },
+  "art/face-low_hp-2.png": {
+    "psm": 2
+  },
+  "art/face-dying-0.png": {
+    "psm": 2
+  },
+  "art/face-dying-1.png": {
+    "psm": 2
+  },
+  "art/face-dying-2.png": {
+    "psm": 2
+  },
+  "art/face-near_death-0.png": {
+    "psm": 2
+  },
+  "art/face-near_death-1.png": {
+    "psm": 2
+  },
+  "art/face-near_death-2.png": {
+    "psm": 2
+  },
+  "art/face-dead-0.png": {
+    "psm": 2
+  },
+  "art/menu-title.png": {
+    "psm": 2
+  },
+  "art/menu-psyched.png": {
+    "psm": 2
+  },
+  "art/menu-end.png": {
+    "psm": 2
+  },
+  "art/hand-pistol-0.png": {
+    "psm": 2
+  },
+  "art/hand-pistol-1.png": {
+    "psm": 2
+  },
+  "art/hand-pistol-2.png": {
+    "psm": 2
+  },
+  "art/hand-pistol-3.png": {
+    "psm": 2
+  },
+  "art/hand-smg-0.png": {
+    "psm": 2
+  },
+  "art/hand-smg-1.png": {
+    "psm": 2
+  },
+  "art/hand-smg-2.png": {
+    "psm": 2
+  },
+  "art/hand-smg-3.png": {
+    "psm": 2
+  },
+  "art/hand-smg-4.png": {
+    "psm": 2
+  },
+  "art/map-e1m1.png": {
+    "psm": 2
+  }
+}
