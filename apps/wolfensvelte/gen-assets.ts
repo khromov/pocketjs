@@ -366,6 +366,15 @@ const FACE_FILES: Record<string, string[]> = {
   dead: ["DEAD"],
 };
 
+// Music comes as MP3 in the source. The cooker converts it with macOS
+// afconvert (CoreAudio) to the lowest rate the audio contract allows,
+// 11025 Hz s16 mono, and commits the result like the effects; when afconvert
+// is absent the committed WAVs are kept as they are.
+const MUSIC: Record<string, string> = {
+  "music-menu": "music/menu.mp3",
+  "music-e1m1": "music/E1M1.mp3",
+};
+
 const SOUNDS: Record<string, string> = {
   pistol: "sounds/pistol.WAV",
   smg: "sounds/smg.WAV",
@@ -463,13 +472,36 @@ async function main(): Promise<void> {
   writeFileSync(join(psp, "pic1.png"), encodePng(crop(pic, 0, 14, 480, 272)));
 
   // -- sounds -------------------------------------------------------------------
-  const pak: { key: string; file: string }[] = [];
+  // Every audio blob is tagged with the capability it needs, so a plan-driven
+  // build for a target without an audio module (the 3DS) leaves them out.
+  const pak: { key: string; file: string; requires: string }[] = [];
   for (const [name, rel] of Object.entries(SOUNDS)) {
     const pcm = resample(decodeWavAny(new Uint8Array(readFileSync(join(src, "src/lib", rel))), rel), SFX_RATE);
     const wav = encodeWav16Mono(pcm);
     writeFileSync(join(sfx, `${name}.wav`), wav);
-    pak.push({ key: `audio:wav.${name}`, file: `sfx/${name}.wav` });
+    pak.push({ key: `audio:wav.${name}`, file: `sfx/${name}.wav`, requires: "audio.pcm" });
     pakBytes += wav.length;
+  }
+
+  for (const [name, rel] of Object.entries(MUSIC)) {
+    const out = join(sfx, `${name}.wav`);
+    const converter = Bun.which("afconvert");
+    if (converter) {
+      const proc = Bun.spawnSync([converter, "-f", "WAVE", "-d", `LEI16@${SFX_RATE}`, "-c", "1", join(src, "src/lib", rel), out]);
+      if (proc.exitCode !== 0) throw new Error(`afconvert failed for ${rel}: ${proc.stderr.toString()}`);
+    } else if (!existsSync(out)) {
+      throw new Error(`${name}: afconvert is not available and ${out} does not exist yet`);
+    } else {
+      console.log(`  ${name}: afconvert not found, keeping the committed WAV`);
+    }
+    // Round-trip through the cooker's WAV writer so the header is exactly the
+    // shape decodeWav expects (a plain 44-byte PCM header, no extra chunks).
+    const pcm = decodeWavAny(new Uint8Array(readFileSync(out)), name);
+    const wav = encodeWav16Mono(resample(pcm, SFX_RATE));
+    writeFileSync(out, wav);
+    pak.push({ key: `audio:wav.${name}`, file: `sfx/${name}.wav`, requires: "audio.pcm" });
+    pakBytes += wav.length;
+    console.log(`  ${name}: ${(pcm.samples.length / SFX_RATE).toFixed(0)} s, ${(wav.length / 1024).toFixed(0)} KB`);
   }
 
   // -- manifests + generated code -----------------------------------------------

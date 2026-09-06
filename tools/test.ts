@@ -170,9 +170,12 @@ const SUITE: readonly Stage[] = [
   },
   {
     name: "audio sim",
-    prep: [["bun", "tools/build.ts", "music-main"]],
+    prep: [
+      ["bun", "tools/build.ts", "music-main"],
+      ["bun", "tools/build.ts", "wolfensvelte-main", "--framework=svelte"],
+    ],
     browser: true,
-    tests: ["tests/audio-sim.test.ts"],
+    tests: ["tests/audio-sim.test.ts", "tests/wolfensvelte-audio.test.ts"],
   },
   {
     name: "svelte unit",

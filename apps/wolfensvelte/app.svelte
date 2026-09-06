@@ -13,7 +13,7 @@
   import { BTN } from "@pocketjs/framework/svelte/input";
   import { onFrame } from "@pocketjs/framework/svelte/lifecycle";
   import type { NodeMirror } from "@pocketjs/framework/svelte/renderer";
-  import { Sfx } from "./game/audio.ts";
+  import { Music, Sfx } from "./game/audio.ts";
   import { PSYCHED_FRAMES } from "./game/constants.ts";
   import { Game } from "./game/game.ts";
   import { InputReader } from "./game/input.ts";
@@ -29,6 +29,7 @@
   const game = new Game();
   const reader = new InputReader();
   const sfx = new Sfx();
+  const music = new Music();
   const START_LIVES = 3;
 
   const titleScale = Math.min(layout.screenW / 320, layout.screenH / 200);
@@ -80,6 +81,8 @@
     lives = START_LIVES;
     game.restart(false);
     syncHud();
+    // The level track starts with the splash, as MusicManager.play(page) did.
+    music.play("music-e1m1");
     enterPsyched();
   }
 
@@ -89,9 +92,11 @@
     phaseFrame++;
     if (phaseFrame % 30 === 0) blink = !blink;
     sfx.pump();
+    music.pump();
 
     switch (phase) {
       case "title":
+        music.play("music-menu");
         if (pressed & BTN.START) newGame();
         break;
       case "psyched":

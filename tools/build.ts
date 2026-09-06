@@ -467,12 +467,25 @@ for (const name of imageNames) {
 // entries (e.g. apps/zoomlab's committed TILESET pyramids from gen-assets.ts)
 // appended verbatim as u8 blobs. This keeps expensive offline bakes out of the
 // build: the build just splices bytes it can't (and needn't) regenerate.
+// An entry may name the capability it needs (`"requires": "audio.pcm"`): a
+// plan-driven build for a target whose resolved plan marks that feature
+// unavailable leaves the blob out, so a console without an audio module does
+// not carry the music. Builds without a plan (dev, sim) keep every entry.
 const pakManifestPath = join(appDir, "pak.json");
 buildInputs.optional(pakManifestPath);
 if (existsSync(pakManifestPath)) {
-  const rawEntries = JSON.parse(await Bun.file(pakManifestPath).text()) as Array<{ key: string; file: string }>;
+  const rawEntries = JSON.parse(await Bun.file(pakManifestPath).text()) as Array<{
+    key: string;
+    file: string;
+    requires?: string;
+  }>;
   let rawBytes = 0;
+  const skipped: string[] = [];
   for (const e of rawEntries) {
+    if (e.requires && buildPlan && buildPlan.features[e.requires] === false) {
+      skipped.push(e.key);
+      continue;
+    }
     const basePath = join(appDir, e.file);
     if (!existsSync(basePath)) {
       console.error(`  pak.json: ${e.key} -> ${basePath} missing (re-run the app's gen-assets baker?)`);
@@ -489,7 +502,10 @@ if (existsSync(pakManifestPath)) {
       console.log(`  raw: ${e.key} <- ${path} (@${rasterDensity}x)`);
     }
   }
-  console.log(`  raw: ${rawEntries.length} prebaked blob(s) from pak.json, ${rawBytes} bytes`);
+  console.log(`  raw: ${rawEntries.length - skipped.length} prebaked blob(s) from pak.json, ${rawBytes} bytes`);
+  if (skipped.length > 0) {
+    console.log(`  raw: skipped ${skipped.length} blob(s) whose capability the target lacks: ${skipped.join(", ")}`);
+  }
 }
 
 const pak = pack(blobs);
