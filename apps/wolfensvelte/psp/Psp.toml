@@ -1,0 +1,7 @@
+# XMB metadata for the Wolfensvelte 3D EBOOT. tools/psp.ts copies this to
+# hosts/psp/Psp.toml when building the app; cargo-psp packs it into
+# PARAM.SFO / ICON0 / PIC1. The art is written by apps/wolfensvelte/gen-assets.ts
+# from the title screen.
+title = "Wolfensvelte 3D"
+xmb_icon_png = "icon0.png"
+xmb_background_png = "pic1.png"

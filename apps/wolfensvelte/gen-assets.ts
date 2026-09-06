@@ -21,7 +21,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync 
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { decodeBmp } from "./cook/bmp.ts";
-import { blank, blit, crop, downsample, fillRect, flatten, pad } from "./cook/image.ts";
+import { blank, blit, crop, downsample, fillRect, flatten, pad, resize } from "./cook/image.ts";
 import { decodePng, encodePng, type Rgba } from "./cook/png.ts";
 import { decodeWavAny, encodeWav16Mono, resample } from "./cook/wav.ts";
 
@@ -450,6 +450,17 @@ async function main(): Promise<void> {
 
   // -- overview map -------------------------------------------------------------
   writeArt("map-e1m1.png", buildMapImage(level), 2);
+
+  // -- PSP XMB art (psp/Psp.toml points at these; cargo-psp packs them) --------
+  // ICON0 is 144x80 and PIC1 480x272: the 320x200 title screen scaled to width,
+  // cropped to height around its centre.
+  const psp = join(HERE, "psp");
+  mkdirSync(psp, { recursive: true });
+  const title = flatten(readImage(join(menu, "wolf_menu.BMP")));
+  const icon = resize(title, 144, 90);
+  writeFileSync(join(psp, "icon0.png"), encodePng(crop(icon, 0, 5, 144, 80)));
+  const pic = resize(title, 480, 300);
+  writeFileSync(join(psp, "pic1.png"), encodePng(crop(pic, 0, 14, 480, 272)));
 
   // -- sounds -------------------------------------------------------------------
   const pak: { key: string; file: string }[] = [];
