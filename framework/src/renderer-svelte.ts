@@ -11,6 +11,7 @@
 
 import { createRenderer } from "svelte/renderer";
 import { flushSync, mount as svelteMount, unmount as svelteUnmount } from "svelte";
+import type { Component, ComponentType, SvelteComponent } from "svelte";
 import { NODE_TYPE } from "../../contracts/spec/spec.ts";
 import {
   createCommentNode,
@@ -251,8 +252,14 @@ const renderer = createRenderer<{
 
 export default renderer;
 
-/** The component type `mount()` accepts; apps hand `mount()` their default export. */
-export type SvelteRenderRoot = Parameters<typeof svelteMount>[0];
+/**
+ * The component type `mount()` accepts; apps hand `mount()` their default
+ * export. Spelled with `any` props on purpose: Svelte's own `mount()` is
+ * generic over the props, and its bare parameter type (`Record<string, any>`
+ * props) rejects a component that declares none (`Record<string, never>`)
+ * because the props parameter is contravariant.
+ */
+export type SvelteRenderRoot = Component<any, any, any> | ComponentType<SvelteComponent<any, any, any>>;
 
 /**
  * Mount a component into a native node. Svelte inserts before an anchor, so one
