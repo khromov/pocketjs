@@ -143,16 +143,7 @@ try {
     console.log(`  svelte: ${app.output} <- ${app.variant}`);
   }
 
-  // Local workaround: Homebrew clang stamps .MIPS.abiflags fp_abi=SINGLE for
-  // -msingle-float while the pinned SDK and rustc objects declare DOUBLE, so
-  // rust-lld rejects the link. Delete this block once the LLVM version is
-  // pinned in tools/cli/psp-toolchain.json.
-  const shim = join(homedir(), ".cache/pocket-stack/psp/llvm-shim/bin");
   const env = { ...process.env };
-  if (!env.POCKETJS_LLVM_BIN?.trim() && existsSync(join(shim, "clang"))) {
-    env.POCKETJS_LLVM_BIN = shim;
-    console.log(`psp-svelte: using local LLVM shim ${shim}`);
-  }
 
   // XMB identity for this build: PIC1 is the 480x272 background, ICON0 the
   // 144x80 tile. tools/launcher.ts would otherwise generate a sim render of

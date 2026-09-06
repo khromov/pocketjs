@@ -7,7 +7,9 @@ import {
   cargoHostTriple,
   cachedCargoPspBin,
   cachedCargoPspRoot,
+  cachedPspLlvmShimBin,
   cachedPspSdk,
+  ensurePspLlvmShim,
   hasVerifiedCachedPspSdk,
   hasPinnedCargoPspRoot,
   hasPinnedCargoPspTools,
@@ -91,6 +93,7 @@ describe("canonical PSP toolchain", () => {
     writeFileSync(join(sdk, "psp/lib/libc.a"), "fixture");
     writeFileSync(join(llvm, "clang"), "fixture");
     writeFileSync(join(llvm, "llvm-ar"), "fixture");
+    writeFileSync(join(llvm, "llvm-objcopy"), "fixture");
     for (const tool of PSP_TOOLCHAIN.cargoPsp.tools) {
       const path = join(cachedCargoPspBin({ HOME: cache, POCKET_STACK_CACHE_DIR: cache }), tool);
       mkdirSync(dirname(path), { recursive: true });
@@ -117,6 +120,52 @@ describe("canonical PSP toolchain", () => {
     expect(resolved.sdk).toEqual({ path: sdk, source: "PSP_SDK" });
     expect(resolved.environment.PSP_SDK).toBe(sdk);
     expect(resolved.environment.PSPDEV).toBe(sdk);
+
+    // Every PSP entry point builds through this env, so the wrappers have to
+    // win over the real LLVM here rather than at one call site.
+    const path = (resolved.environment.PATH ?? "").split(":");
+    const shim = cachedPspLlvmShimBin({ HOME: cache, POCKET_STACK_CACHE_DIR: cache });
+    expect(path).toContain(shim);
+    expect(path.indexOf(shim)).toBeLessThan(path.indexOf(llvm));
+  });
+
+  test("writes .MIPS.abiflags wrappers for the resolved LLVM", () => {
+    const cache = tempRoot();
+    const env = { HOME: cache, POCKET_STACK_CACHE_DIR: cache };
+    const llvm = join(cache, "llvm");
+    mkdirSync(llvm, { recursive: true });
+    for (const tool of ["clang", "clang++", "llvm-ar", "llvm-objcopy"]) {
+      writeFileSync(join(llvm, tool), "fixture");
+    }
+
+    const shim = ensurePspLlvmShim(llvm, env);
+    expect(shim).toBe(cachedPspLlvmShimBin(env));
+
+    // The compilers clear the section; llvm-ar only needs to reach the real one.
+    const clang = readFileSync(join(shim!, "clang"), "utf8");
+    expect(clang).toContain(`"${join(llvm, "clang")}" "$@" || exit $?`);
+    expect(clang).toContain("--remove-section=.MIPS.abiflags");
+    expect(readFileSync(join(shim!, "llvm-ar"), "utf8")).toContain(
+      `exec "${join(llvm, "llvm-ar")}" "$@"`,
+    );
+
+    // Rewritten when the resolved LLVM moves, so a stale wrapper cannot pin a
+    // toolchain the rest of the build has left behind.
+    const moved = join(cache, "llvm-next");
+    mkdirSync(moved, { recursive: true });
+    for (const tool of ["clang", "llvm-objcopy"]) writeFileSync(join(moved, tool), "fixture");
+    ensurePspLlvmShim(moved, env);
+    expect(readFileSync(join(shim!, "clang"), "utf8")).toContain(join(moved, "clang"));
+  });
+
+  test("skips the shim when the resolved LLVM ships no llvm-objcopy", () => {
+    const cache = tempRoot();
+    const llvm = join(cache, "llvm");
+    mkdirSync(llvm, { recursive: true });
+    writeFileSync(join(llvm, "clang"), "fixture");
+    writeFileSync(join(llvm, "llvm-ar"), "fixture");
+    expect(ensurePspLlvmShim(llvm, { HOME: cache, POCKET_STACK_CACHE_DIR: cache }))
+      .toBeUndefined();
   });
 
   test("rejects an invalid explicit SDK instead of falling through", () => {
