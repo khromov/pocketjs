@@ -3,6 +3,13 @@
   // presenter each frame. Input is decoded here and handed to the headless
   // game (game/step.ts); the game's event bits drive sounds, tweens and the
   // HUD store on the way back.
+  //
+  // The pools are bare host nodes, not <Image> components. A component
+  // instance costs a few hundred JS objects (props, effects, attachments);
+  // six hundred of them put the QuickJS heap past what a PSP has, while a
+  // node created through the renderer is one mirror object. The template
+  // keeps four empty layer views in paint order and the pools are inserted
+  // into them at mount.
   import { onMount, untrack } from "svelte";
   import { setTextContent } from "@pocketjs/framework/svelte";
   import { animate, jump } from "@pocketjs/framework/svelte/animation";
@@ -10,6 +17,7 @@
   import type { NodeMirror } from "@pocketjs/framework/svelte/components";
   import { BTN } from "@pocketjs/framework/svelte/input";
   import { analogX, analogY, onButtonPress, onFrame } from "@pocketjs/framework/svelte/lifecycle";
+  import { createElement, detachNode, insertNode, setProp } from "@pocketjs/framework/svelte/renderer";
   import {
     EV_BOMB,
     EV_BOSS_ENTER,
@@ -50,25 +58,53 @@
   const game = untrack(() => gameProp);
   const w = untrack(() => wProp);
 
-  const range = (n: number, from = 0): number[] => Array.from({ length: n }, (_, i) => from + i);
-  // Slot ranges mirror the pool partitions: one texture per kind and type.
-  const RED = range(KIND_SLOTS[0]);
-  const BLUE = range(KIND_SLOTS[1], KIND_SLOTS[0]);
-  const GREEN = range(KIND_SLOTS[2], KIND_SLOTS[0] + KIND_SLOTS[1]);
-  const SHOTS = range(MAX_PBULLETS);
-  const DRONES = range(TYPE_SLOTS[0]);
-  const GUNSHIPS = range(TYPE_SLOTS[1], TYPE_SLOTS[0]);
-  const HEAVIES = range(TYPE_SLOTS[2], TYPE_SLOTS[0] + TYPE_SLOTS[1]);
-  const FX = range(MAX_FX);
   /** The starfield tile is a square the width of the field, scrolled and wrapped. */
   const tile = w;
 
-  const ebNodes: (NodeMirror | undefined)[] = new Array(game.eb.n);
-  const pbNodes: (NodeMirror | undefined)[] = new Array(game.pb.n);
-  const enNodes: (NodeMirror | undefined)[] = new Array(game.en.n);
-  const fxNodes: (NodeMirror | undefined)[] = new Array(MAX_FX);
+  // Paint layers, back to front; each pool is inserted into one of them.
+  let enemyLayer: NodeMirror | undefined;
+  let shotLayer: NodeMirror | undefined;
+  let bulletLayer: NodeMirror | undefined;
+  let fxLayer: NodeMirror | undefined;
+  const pooled: NodeMirror[] = [];
+  let ebNodes: NodeMirror[] = [];
+  let pbNodes: NodeMirror[] = [];
+  let enNodes: NodeMirror[] = [];
+  let fxNodes: NodeMirror[] = [];
   let bossNode: NodeMirror | undefined;
   let playerNode: NodeMirror | undefined;
+
+  /**
+   * `count` image nodes of one texture, centred on the layer origin and
+   * hidden, appended to `layer` in slot order. The class strings are literals
+   * so the build bakes their style records like any template class.
+   */
+  function pool(
+    layer: NodeMirror,
+    count: number,
+    cls: string,
+    src: string,
+    halfW: number,
+    halfH: number,
+    scale = 1,
+  ): NodeMirror[] {
+    const nodes: NodeMirror[] = new Array(count);
+    for (let i = 0; i < count; i++) {
+      const n = createElement("image");
+      setProp(n, "class", cls);
+      setProp(n, "src", src);
+      setProp(n, "style", { insetL: -halfW, insetT: -halfH, opacity: 0, scale });
+      insertNode(layer, n);
+      nodes[i] = n;
+      pooled.push(n);
+    }
+    return nodes;
+  }
+
+  function need(node: NodeMirror | undefined, what: string): NodeMirror {
+    if (!node) throw new Error(`svelte-shooter: ${what} layer was not mounted`);
+    return node;
+  }
   let shieldNode: NodeMirror | undefined;
   let flashNode: NodeMirror | undefined;
   let bgA: NodeMirror | undefined;
@@ -196,6 +232,23 @@
   });
 
   onMount(() => {
+    const enemies = need(enemyLayer, "enemy");
+    const shots = need(shotLayer, "shot");
+    const bullets = need(bulletLayer, "bullet");
+    const fx = need(fxLayer, "fx");
+    enNodes = [
+      ...pool(enemies, TYPE_SLOTS[0], "absolute w-[32] h-[32]", "art/drone.png", 16, 16),
+      ...pool(enemies, TYPE_SLOTS[1], "absolute w-[32] h-[32]", "art/gunship.png", 16, 16),
+      ...pool(enemies, TYPE_SLOTS[2], "absolute w-[64] h-[64]", "art/heavy.png", 32, 32),
+    ];
+    bossNode = pool(enemies, 1, "absolute w-[64] h-[64]", "art/boss.png", 32, 32)[0];
+    pbNodes = pool(shots, MAX_PBULLETS, "absolute w-[8] h-[32]", "art/shot.png", 4, 16);
+    ebNodes = [
+      ...pool(bullets, KIND_SLOTS[0], "absolute w-[16] h-[16]", "art/bullet-red.png", 8, 8),
+      ...pool(bullets, KIND_SLOTS[1], "absolute w-[16] h-[16]", "art/bullet-blue.png", 8, 8),
+      ...pool(bullets, KIND_SLOTS[2], "absolute w-[8] h-[8]", "art/bullet-green.png", 4, 4),
+    ];
+    fxNodes = pool(fx, MAX_FX, "absolute w-[32] h-[32]", "art/burst.png", 16, 16, 0.3);
     presenter = buildPresenter({
       eb: ebNodes,
       pb: pbNodes,
@@ -208,7 +261,11 @@
     });
     syncHud(game);
     presenter.present(game, scroll, tile);
-    return () => sfx.dispose();
+    return () => {
+      sfx.dispose();
+      for (const n of pooled) if (n.parent) detachNode(n.parent, n);
+      pooled.length = 0;
+    };
   });
 </script>
 
@@ -216,20 +273,8 @@
   <Image class="absolute" src="art/bg.png" style={{ insetL: 0, insetT: 0, width: tile, height: tile }} nodeRef={(n: NodeMirror) => (bgA = n)} />
   <Image class="absolute" src="art/bg.png" style={{ insetL: 0, insetT: 0, width: tile, height: tile }} nodeRef={(n: NodeMirror) => (bgB = n)} />
 
-  {#each DRONES as i (i)}
-    <Image class="absolute w-[32] h-[32]" src="art/drone.png" style={{ insetL: -16, insetT: -16, opacity: 0 }} nodeRef={(n: NodeMirror) => (enNodes[i] = n)} />
-  {/each}
-  {#each GUNSHIPS as i (i)}
-    <Image class="absolute w-[32] h-[32]" src="art/gunship.png" style={{ insetL: -16, insetT: -16, opacity: 0 }} nodeRef={(n: NodeMirror) => (enNodes[i] = n)} />
-  {/each}
-  {#each HEAVIES as i (i)}
-    <Image class="absolute w-[64] h-[64]" src="art/heavy.png" style={{ insetL: -32, insetT: -32, opacity: 0 }} nodeRef={(n: NodeMirror) => (enNodes[i] = n)} />
-  {/each}
-  <Image class="absolute w-[64] h-[64]" src="art/boss.png" style={{ insetL: -32, insetT: -32, opacity: 0 }} nodeRef={(n: NodeMirror) => (bossNode = n)} />
-
-  {#each SHOTS as i (i)}
-    <Image class="absolute w-[8] h-[32]" src="art/shot.png" style={{ insetL: -4, insetT: -16, opacity: 0 }} nodeRef={(n: NodeMirror) => (pbNodes[i] = n)} />
-  {/each}
+  <View debugName="Enemies" class="absolute" style={{ insetL: 0, insetT: 0, width: 0, height: 0 }} nodeRef={(n: NodeMirror) => (enemyLayer = n)} />
+  <View debugName="Shots" class="absolute" style={{ insetL: 0, insetT: 0, width: 0, height: 0 }} nodeRef={(n: NodeMirror) => (shotLayer = n)} />
 
   <View debugName="Player" class="absolute w-[32] h-[32]" style={{ insetL: -16, insetT: -16 }} nodeRef={(n: NodeMirror) => (playerNode = n)}>
     <Image class="absolute w-[64] h-[64]" src="art/shield.png" style={{ insetL: -16, insetT: -16, opacity: 0 }} nodeRef={(n: NodeMirror) => (shieldNode = n)} />
@@ -238,19 +283,8 @@
     <View class="absolute w-[2] h-[2] bg-white" style={{ insetL: 15, insetT: 15 }} />
   </View>
 
-  {#each RED as i (i)}
-    <Image class="absolute w-[16] h-[16]" src="art/bullet-red.png" style={{ insetL: -8, insetT: -8, opacity: 0 }} nodeRef={(n: NodeMirror) => (ebNodes[i] = n)} />
-  {/each}
-  {#each BLUE as i (i)}
-    <Image class="absolute w-[16] h-[16]" src="art/bullet-blue.png" style={{ insetL: -8, insetT: -8, opacity: 0 }} nodeRef={(n: NodeMirror) => (ebNodes[i] = n)} />
-  {/each}
-  {#each GREEN as i (i)}
-    <Image class="absolute w-[8] h-[8]" src="art/bullet-green.png" style={{ insetL: -4, insetT: -4, opacity: 0 }} nodeRef={(n: NodeMirror) => (ebNodes[i] = n)} />
-  {/each}
-
-  {#each FX as i (i)}
-    <Image class="absolute w-[32] h-[32]" src="art/burst.png" style={{ insetL: -16, insetT: -16, opacity: 0, scale: 0.3 }} nodeRef={(n: NodeMirror) => (fxNodes[i] = n)} />
-  {/each}
+  <View debugName="Bullets" class="absolute" style={{ insetL: 0, insetT: 0, width: 0, height: 0 }} nodeRef={(n: NodeMirror) => (bulletLayer = n)} />
+  <View debugName="Fx" class="absolute" style={{ insetL: 0, insetT: 0, width: 0, height: 0 }} nodeRef={(n: NodeMirror) => (fxLayer = n)} />
 
   <View debugName="Flash" class="absolute bg-white" style={{ insetL: 0, insetT: 0, width: w, height: h, opacity: 0 }} nodeRef={(n: NodeMirror) => (flashNode = n)} />
 
