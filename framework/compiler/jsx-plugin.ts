@@ -9,6 +9,7 @@ import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { compileVueSfc } from "./vue-sfc-compile.ts";
 import { compileSvelte, compileSvelteModule } from "./svelte-compile.ts";
+import { foldSvelteConstants } from "./svelte-fold.ts";
 import {
   propsHelperCode,
   propsHelperId,
@@ -73,6 +74,8 @@ const SVELTE_DOM_STUBS_PATH = fileURLToPath(
  *  framework/src/svelte-dom-stubs.ts for why they cannot be shaken out. */
 const SVELTE_DOM_ONLY = /^\.\/dom\/elements\/(?:custom-element|bindings\/(?:input|size))\.js$/;
 const SVELTE_CLIENT_BARREL = "/node_modules/svelte/src/internal/client/index.js";
+/** Every source file of the vendored Svelte runtime; see svelte-fold.ts. */
+const SVELTE_RUNTIME_FILE = /[\\/]node_modules[\\/]svelte[\\/]src[\\/].*\.js$/;
 const GENERATED_STYLES_PATH = fileURLToPath(
   new URL("../src/styles.generated.ts", import.meta.url),
 );
@@ -709,6 +712,14 @@ export function jsxPlugin(
             ? { path: SVELTE_DOM_STUBS_PATH }
             : undefined,
         );
+        // Dev-only, hydration and flag-guarded paths in the runtime sit behind
+        // imported bindings Bun cannot fold. Substitute the values a PocketJS
+        // build fixes so the bundler drops them. See svelte-fold.ts.
+        build.onLoad({ filter: SVELTE_RUNTIME_FILE }, async (args) => {
+          const src = await Bun.file(args.path).text();
+          const folded = foldSvelteConstants(args.path, src);
+          return folded === undefined ? undefined : { contents: folded, loader: "js" };
+        });
         build.onLoad({ filter: /\.svelte(?:\.[jt]s)?$/ }, async (args) => {
           const src = await Bun.file(args.path).text();
           const { code } = await transformFile(args.path, src, framework, {

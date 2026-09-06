@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { transformFile } from "../framework/compiler/jsx-plugin.ts";
 import { compileSvelte, compileSvelteModule } from "../framework/compiler/svelte-compile.ts";
+import { foldSvelteConstants } from "../framework/compiler/svelte-fold.ts";
 
 const COUNTER = `
 <script lang="ts">
@@ -148,5 +149,96 @@ describe("PocketJS authoring rules", () => {
 
   test("errors name the file and line", () => {
     expect(compileFails(`<view></view>\n<view style="x"></view>`)).toContain("Bad.svelte:2:");
+  });
+});
+
+describe("build-time constants in the Svelte runtime", () => {
+  const CLIENT = "/repo/node_modules/svelte/src/internal/client/";
+
+  test("drops DEV from the esm-env import and folds every read to false", () => {
+    const src = [
+      `import { DEV } from 'esm-env';`,
+      `import { get } from './runtime.js';`,
+      `export function f(x) { if (DEV) { check(x); } return get(x); }`,
+      `export const label = DEV ? name(x) : null;`,
+    ].join("\n");
+    const out = foldSvelteConstants(CLIENT + "proxy.js", src);
+
+    expect(out).toBeDefined();
+    expect(out).not.toContain("esm-env");
+    expect(out).not.toMatch(/\bDEV\b/);
+    expect(out).toContain("if (false) { check(x); }");
+    expect(out).toContain("false ? name(x) : null");
+    expect(out).toContain(`import { get } from './runtime.js';`);
+  });
+
+  test("removes one specifier from a multi-line import and keeps the rest", () => {
+    const src = [
+      `import {`,
+      `\thydrate_next,`,
+      `\thydrate_node,`,
+      `\thydrating,`,
+      `\tset_hydrating`,
+      `} from '../hydration.js';`,
+      `export function next() { return hydrating ? hydrate_node : null; }`,
+    ].join("\n");
+    const out = foldSvelteConstants(CLIENT + "dom/blocks/each.js", src);
+
+    expect(out).toContain(
+      `import { hydrate_next, hydrate_node, set_hydrating } from '../hydration.js';`,
+    );
+    expect(out).toContain("return false ? hydrate_node : null;");
+  });
+
+  test("leaves identifiers that only contain a folded name alone", () => {
+    const src = [
+      `import { hydrating, set_hydrating } from '../hydration.js';`,
+      `var was_hydrating = hydrating;`,
+      `if (was_hydrating) set_hydrating(false);`,
+    ].join("\n");
+    const out = foldSvelteConstants(CLIENT + "dom/elements/attributes.js", src);
+
+    expect(out).toContain("var was_hydrating = false;");
+    expect(out).toContain("if (was_hydrating) set_hydrating(false);");
+  });
+
+  test("never rewrites the module that declares a binding", () => {
+    const flags = [
+      `export let custom_renderers_flag = false;`,
+      `export function enable_custom_renderers_flag() { custom_renderers_flag = true; }`,
+    ].join("\n");
+    expect(foldSvelteConstants("/repo/node_modules/svelte/src/internal/flags/index.js", flags)).toBeUndefined();
+
+    const hydration = [
+      `export let hydrating = false;`,
+      `export function set_hydrating(value) { hydrating = value; }`,
+    ].join("\n");
+    expect(foldSvelteConstants(CLIENT + "dom/hydration.js", hydration)).toBeUndefined();
+  });
+
+  test("does not touch the server-side hydration module of the same name", () => {
+    const src = `import { BLOCK_OPEN } from './hydration.js';\nexport const open = BLOCK_OPEN;`;
+    expect(foldSvelteConstants("/repo/node_modules/svelte/src/internal/server/index.js", src)).toBeUndefined();
+  });
+
+  test("returns undefined for a file that imports none of the constants", () => {
+    const src = `import { get } from './runtime.js';\nexport const x = get(1);`;
+    expect(foldSvelteConstants(CLIENT + "dom/task.js", src)).toBeUndefined();
+  });
+
+  test("refuses an aliased import instead of substituting the wrong name", () => {
+    const src = `import { DEV as dev } from 'esm-env';\nif (dev) {}`;
+    expect(() => foldSvelteConstants(CLIENT + "x.js", src)).toThrow(/imports DEV as dev/);
+  });
+
+  test("fixes the flags to the values a PocketJS build establishes", () => {
+    const src = [
+      `import { async_mode_flag, custom_renderers_flag, legacy_mode_flag, tracing_mode_flag } from '../flags/index.js';`,
+      `export const v = [async_mode_flag, custom_renderers_flag, legacy_mode_flag, tracing_mode_flag];`,
+    ].join("\n");
+    const out = foldSvelteConstants(CLIENT + "runtime.js", src);
+
+    expect(out).not.toContain("flags/index.js");
+    expect(out).toContain("export const v = [false, true, false, false];");
   });
 });
