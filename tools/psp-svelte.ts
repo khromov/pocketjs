@@ -10,7 +10,8 @@
 // invisible to it: the manifest says framework=solid and entry=main.tsx. This
 // script points the Svelte-capable manifests at their Svelte entries for the
 // duration of one build and restores them in a finally block (and on SIGINT),
-// then excludes every app that has no Svelte entry at all.
+// then excludes every app that has no Svelte entry at all, plus the demos in
+// STANDALONE_OUTPUTS, which ship as their own EBOOTs.
 //
 // --force is REQUIRED and not optional: tools/launcher.ts:887 reuses an
 // existing dist/<output>.js instead of rebuilding it, so without it the pack
@@ -69,9 +70,20 @@ const apps = readdirSync(APPS, { withFileTypes: true })
     }];
   });
 
+/**
+ * Demos that ship as their own EBOOT (`bun tools/psp.ts <app> --framework=svelte
+ * --release`, staged under dist/psp/PSP/GAME/<Title>/) and stay out of the
+ * gallery. Wolfensvelte carries its wall textures and a music stream in its pak,
+ * which would put most of the gallery's bytes behind one deck entry.
+ */
+const STANDALONE_OUTPUTS: ReadonlySet<string> = new Set(["wolfensvelte-main"]);
+
 const shell = apps.find((a) => a.output === SHELL_OUTPUT);
-const demos = apps.filter((a) => a.output !== SHELL_OUTPUT && (a.variant || a.declared));
-const excluded = apps.filter((a) => a.output !== SHELL_OUTPUT && !a.variant && !a.declared);
+const demos = apps.filter(
+  (a) =>
+    a.output !== SHELL_OUTPUT && (a.variant || a.declared) && !STANDALONE_OUTPUTS.has(a.output),
+);
+const excluded = apps.filter((a) => a.output !== SHELL_OUTPUT && !demos.includes(a));
 
 if (demos.length === 0) throw new Error("psp-svelte: no Svelte-capable demos found under apps/");
 
@@ -130,7 +142,10 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
 
 console.log(`psp-svelte: ${demos.length} Svelte demo(s): ${demos.map((a) => a.output).join(", ")}`);
 console.log(`psp-svelte: shell ${SHELL_OUTPUT} (${svelteShell && shell?.variant ? "svelte" : "unchanged"})`);
-console.log(`psp-svelte: excluding ${excluded.length} non-Svelte app(s)`);
+console.log(
+  `psp-svelte: excluding ${excluded.length} app(s)` +
+    ` (${excluded.filter((a) => STANDALONE_OUTPUTS.has(a.output)).length} standalone, the rest non-Svelte)`,
+);
 
 try {
   for (const app of flip) {
