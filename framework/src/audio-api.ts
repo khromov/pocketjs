@@ -160,6 +160,34 @@ export interface WavPlayer {
   dispose(): void;
 }
 
+interface AudioEvent {
+  t?: string;
+  h?: number;
+  free?: number;
+}
+
+/**
+ * Every live player by stream handle. The module namespace has ONE event
+ * queue, so whichever pump drains it must hand each fact to the stream it
+ * names: a player that skipped the others' events dropped them, and a music
+ * player pumped after three effect voices never saw its credits and starved.
+ */
+const players = new Map<number, (ev: AudioEvent) => void>();
+
+function drainEvents(ns: AudioOps): void {
+  for (let line = ns.poll(); line !== undefined; line = ns.poll()) {
+    let ev: AudioEvent;
+    try {
+      ev = JSON.parse(line) as AudioEvent;
+    } catch {
+      continue; // a malformed event is a host bug; skip, don't wedge the pump
+    }
+    if (typeof ev.h !== "number") continue;
+    const onEvent = players.get(ev.h);
+    if (onEvent) onEvent(ev); // a stream dropped since the tick began has no owner
+  }
+}
+
 export function createWavPlayer(): WavPlayer {
   let pcm: WavPcm | null = null;
   let handle = -1;
@@ -176,9 +204,18 @@ export function createWavPlayer(): WavPlayer {
   let volume = 1;
   let underruns = 0;
 
+  function onEvent(ev: AudioEvent): void {
+    if (ev.t === "credit" && typeof ev.free === "number") free = ev.free;
+    else if (ev.t === "underrun") underruns++;
+    else if (ev.t === "ended") isPlaying = false;
+  }
+
   function dropStream(): void {
     const ns = audioHost();
-    if (ns && handle >= 0) ns.destroyStream(handle);
+    if (handle >= 0) {
+      players.delete(handle);
+      if (ns) ns.destroyStream(handle);
+    }
     handle = -1;
   }
 
@@ -193,23 +230,9 @@ export function createWavPlayer(): WavPlayer {
     if (!ns) return false;
     handle = ns.createStream(next.sampleRate, next.channels);
     if (handle < 0) return false;
+    players.set(handle, onEvent);
     ns.setVolume(handle, volume);
     return true;
-  }
-
-  function drainEvents(ns: AudioOps): void {
-    for (let line = ns.poll(); line !== undefined; line = ns.poll()) {
-      let ev: { t?: string; h?: number; free?: number };
-      try {
-        ev = JSON.parse(line) as typeof ev;
-      } catch {
-        continue; // a malformed event is a host bug; skip, don't wedge the pump
-      }
-      if (ev.h !== handle) continue; // another player's stream
-      if (ev.t === "credit" && typeof ev.free === "number") free = ev.free;
-      else if (ev.t === "underrun") underruns++;
-      else if (ev.t === "ended") isPlaying = false;
-    }
   }
 
   function play(): void {
