@@ -20,6 +20,7 @@
   import { Image, Text, View } from "@pocketjs/framework/svelte/components";
   import { onButtonPress } from "@pocketjs/framework/svelte/lifecycle";
   import { BTN } from "@pocketjs/framework/svelte/input";
+  import SvelteLogoScreen from "../shared/SvelteLogoScreen.svelte";
 
   // -------------------------------------------------------------------------
   // Tile chrome: 3x2 grid of 154x116 rounded cards. Keep the grid between the
@@ -659,3 +660,5 @@
     <Text class="text-xs font-bold text-[#888]">(yui540)</Text>
   </View>
 </View>
+
+<SvelteLogoScreen caption="Motions" />

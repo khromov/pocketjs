@@ -4,6 +4,7 @@
   import FeatureCard from "./FeatureCard.svelte";
   import FeatureToggle from "./FeatureToggle.svelte";
   import { recordPress, session } from "./store.svelte.ts";
+  import SvelteLogoScreen from "../shared/SvelteLogoScreen.svelte";
 
   interface Feature {
     id: string;
@@ -96,3 +97,5 @@
     <Text class="text-xs text-slate-400">module presses: {session.presses}</Text>
   </View>
 </View>
+
+<SvelteLogoScreen caption="Feature Lab" />

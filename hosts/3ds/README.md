@@ -98,6 +98,30 @@ parts of it for the duration of one build and restores the file afterwards:
 `tests/3ds-svelte.test.ts` covers the rewrite: that each demo admits `3ds-dev`
 after it and none does before it.
 
+### The shared bottom screen
+
+Every Svelte demo renders `apps/shared/SvelteLogoScreen.svelte` on the
+auxiliary screen: the Svelte mark turning over the demo's own caption.
+
+Two constraints shape it:
+
+- **It is guarded on `hasAuxiliarySurface()`.** `AuxiliarySurface` calls
+  `getAuxiliarySurfaceRoots()` from `onMount`, which throws where the host
+  publishes no auxiliary surface — the Solid component behaves the same — so
+  one shell that also builds for the PSP has to ask first. On the PSP the
+  component renders nothing.
+- **The spin is pre-baked frames, not an animated `rotate`.**
+  `engine/core/src/draw.rs` conservatively culls rotated IMAGE quads on every
+  host, so a rotate tween makes the mark vanish rather than turn.
+  `assets/images/svelte-spin-00..11.png` are twelve 64x64 rotations, cycled by
+  `createSpriteAnimation` at four vblanks each — one revolution in 0.8 s. This
+  is the same shape as the `spinner-00..07.svg` frames `apps/hero` cycles.
+
+The frames cost **+197 KB of PAK per demo** (12 x 64x64 RGBA8, stored
+uncompressed), and that cost lands on the PSP builds too, where the screen is
+never shown. Splitting the demos into a PSP entry and a 3DS entry would
+reclaim it at the price of a second shell per app.
+
 **Svelte needed a larger JS stack than Solid.** `src/qjs.c` gave QuickJS 192
 KiB, which held Solid but not Svelte's deeper per-component mount: the guest
 died with `InternalError: stack overflow` before its first frame. The limit is

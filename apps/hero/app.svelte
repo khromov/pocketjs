@@ -4,6 +4,7 @@
   import { animate } from "@pocketjs/framework/svelte/animation";
   import { Image, Text, View, type NodeMirror } from "@pocketjs/framework/svelte/components";
   import { createSpriteAnimation } from "@pocketjs/framework/svelte/lifecycle";
+  import SvelteLogoScreen from "../shared/SvelteLogoScreen.svelte";
 
   const SPINNER_FRAME_STEP = 3;
   const SPINNER_FRAMES = [
@@ -80,3 +81,5 @@
     {/if}
   </View>
 </View>
+
+<SvelteLogoScreen caption="Hero" />

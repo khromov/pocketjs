@@ -2,6 +2,7 @@
   import { Image, Text, View } from "@pocketjs/framework/svelte/components";
   import { BTN } from "@pocketjs/framework/svelte/input";
   import { onButtonPress, onFrame } from "@pocketjs/framework/svelte/lifecycle";
+  import SvelteLogoScreen from "../shared/SvelteLogoScreen.svelte";
 
   const COLS = 12;
   const ROWS = 12;
@@ -143,3 +144,5 @@
     </View>
   </View>
 </View>
+
+<SvelteLogoScreen caption="Snake" />

@@ -8,6 +8,7 @@
   //   - active: inversion on the buttons (renders once hosts wire setActive)
   // Golden captures: initial layout + d-pad focus moved onto CANCEL.
   import { Text, View } from "@pocketjs/framework/svelte/components";
+  import SvelteLogoScreen from "../shared/SvelteLogoScreen.svelte";
 </script>
 
 {#snippet titlebarButton()}
@@ -70,3 +71,5 @@
     </View>
   </View>
 </View>
+
+<SvelteLogoScreen caption="Chrome" />

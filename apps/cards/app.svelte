@@ -13,6 +13,7 @@
   import { onMount } from "svelte";
   import { animate, spring } from "@pocketjs/framework/svelte/animation";
   import { Text, View, type NodeMirror } from "@pocketjs/framework/svelte/components";
+  import SvelteLogoScreen from "../shared/SvelteLogoScreen.svelte";
 
   interface Card {
     title: string;
@@ -134,3 +135,5 @@
 
   <Text class="text-xs text-slate-500">LEFT / RIGHT move focus · CIRCLE toggle details</Text>
 </View>
+
+<SvelteLogoScreen caption="Feature Cards" />

@@ -51,6 +51,7 @@
       "@pocketjs/framework/svelte": ["./framework/src/index-svelte.ts"],
       "@pocketjs/framework/svelte/animation": ["./framework/src/animation.ts"],
       "@pocketjs/framework/svelte/components": ["./framework/src/components-svelte.ts"],
+      "@pocketjs/framework/svelte/display": ["./framework/src/display.ts"],
       "@pocketjs/framework/svelte/gesture": ["./framework/src/gesture.svelte.ts"],
       "@pocketjs/framework/svelte/input": ["./framework/src/input-api.ts"],
       "@pocketjs/framework/svelte/kinetics": ["./framework/src/kinetics.svelte.ts"],

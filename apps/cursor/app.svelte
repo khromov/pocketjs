@@ -11,6 +11,7 @@
   import { onDestroy } from "svelte";
   import { Text, View } from "@pocketjs/framework/svelte/components";
   import { enableCursor } from "@pocketjs/framework/svelte/input";
+  import SvelteLogoScreen from "../shared/SvelteLogoScreen.svelte";
 
   const ROWS = ["REPLAY TAPE", "OPEN MEMORY STICK", "LAUNCH SHELL"] as const;
 
@@ -42,3 +43,5 @@
     <Text class="text-xs text-black">{status}</Text>
   </View>
 </View>
+
+<SvelteLogoScreen caption="Cursor" />
