@@ -38,10 +38,11 @@ describe("3DS Svelte build manifests", () => {
       "launcher",
       "motions",
       "svelte-lab",
+      "svelte-shooter",
       "svelte-snake",
       "wolfensvelte",
     ]);
-    // Six carry a Svelte variant beside a Solid manifest; three declare Svelte.
+    // Six carry a Svelte variant beside a Solid manifest; four declare Svelte.
     expect(apps.filter((a) => a.variant).map((a) => a.name)).toEqual([
       "cards",
       "chrome",
@@ -52,6 +53,7 @@ describe("3DS Svelte build manifests", () => {
     ]);
     expect(apps.filter((a) => !a.variant && a.declared).map((a) => a.name)).toEqual([
       "svelte-lab",
+      "svelte-shooter",
       "svelte-snake",
       "wolfensvelte",
     ]);
@@ -59,7 +61,7 @@ describe("3DS Svelte build manifests", () => {
 
   test("every demo the script builds admits 3ds-dev after the rewrite", () => {
     const demos = apps.filter((a) => a.output !== SHELL_OUTPUT);
-    expect(demos.length).toBe(8);
+    expect(demos.length).toBe(9);
     for (const app of demos) {
       const rewritten = threeDsSvelteManifest(manifestFor(app.name), app.variant);
       // Throws with the resolver's diagnostics when the manifest is rejected.

@@ -159,7 +159,7 @@ try {
   console.log(`psp-svelte: XMB art -> white + Svelte logo (${xmb})`);
 
   // The deck is title-sorted; lead with the game when it is present.
-  const lead = ["svelte-snake-main"].filter((output) =>
+  const lead = ["svelte-shooter-main", "svelte-snake-main"].filter((output) =>
     demos.some((app) => app.output === output)
   );
   if (lead.length > 0) {

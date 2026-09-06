@@ -544,6 +544,7 @@ describe("semantic resolution", () => {
       settings: [true, true, false, true],
       stats: [true, true, false, true],
       "svelte-lab": [true, true, false, true],
+      "svelte-shooter": [true, true, false, true],
       "svelte-snake": [true, true, false, true],
       "vue-sfc-lab": [true, true, false, true],
       wolfensvelte: [true, true, false, true],

@@ -100,8 +100,8 @@ describe("launcher registry admission", () => {
       .map((a) => a.output)
       .filter((output) => !pspOutputs.has(output));
     expect(vitaOnly.sort()).toEqual(["iphone16-demo-main", "nsengine-main"]);
-    expect(registry.apps).toHaveLength(19);
-    expect(vitaRegistry.apps).toHaveLength(21);
+    expect(registry.apps).toHaveLength(21);
+    expect(vitaRegistry.apps).toHaveLength(23);
   });
 
   test("committed registry.generated.ts is fresh (re-run tools/launcher.ts scan)", async () => {

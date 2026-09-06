@@ -104,6 +104,18 @@
   "covers/refl-svelte-lab-main.png": {
     "linear": true
   },
+  "covers/cover-svelte-shooter-main.png": {
+    "linear": true
+  },
+  "covers/refl-svelte-shooter-main.png": {
+    "linear": true
+  },
+  "covers/cover-svelte-snake-main.png": {
+    "linear": true
+  },
+  "covers/refl-svelte-snake-main.png": {
+    "linear": true
+  },
   "covers/cover-im-main.png": {
     "linear": true
   },
@@ -114,6 +126,12 @@
     "linear": true
   },
   "covers/refl-vue-sfc-lab-main.png": {
+    "linear": true
+  },
+  "covers/cover-wolfensvelte-main.png": {
+    "linear": true
+  },
+  "covers/refl-wolfensvelte-main.png": {
     "linear": true
   },
   "covers/cover-iphone16-demo-main.png": {

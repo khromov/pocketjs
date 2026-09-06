@@ -1,0 +1,23 @@
+{
+  "art/shot.png": {
+    "psm": 2
+  },
+  "art/shield.png": {
+    "psm": 2
+  },
+  "art/bg.png": {
+    "linear": true
+  },
+  "art/bullet-red.png": {
+    "psm": 2
+  },
+  "art/bullet-blue.png": {
+    "psm": 2
+  },
+  "art/bullet-green.png": {
+    "psm": 2
+  },
+  "art/burst.png": {
+    "psm": 2
+  }
+}
