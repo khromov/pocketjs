@@ -1,11 +1,12 @@
 // apps/svelte-shooter/game/step.ts — one simulation step.
 //
-// Order: player, level script, enemies, boss, bullets, contacts. Every
+// Order: player, level script, enemies, boss, shots, enemy bullets (moved and
+// tested in one pass), then shots and bodies against their targets. Every
 // mutation the presenter cares about lands in `g.events`.
 
 import { CULL_MARGIN, EV_BOSS_HP, EV_HUD, EV_MODE, MODE_PAUSE, MODE_PLAY } from "./constants.ts";
 import { updateBoss } from "./boss.ts";
-import { collide } from "./collide.ts";
+import { collide, stepEnemyBullets } from "./collide.ts";
 import { stepEnemies } from "./enemies.ts";
 import { advanceLevel } from "./level.ts";
 import { stepPlayer, type Input } from "./player.ts";
@@ -15,12 +16,12 @@ import { resetGame, type Game } from "./state.ts";
 export type { Input } from "./player.ts";
 export { useBomb } from "./player.ts";
 
-function stepBullets(p: BulletPool, dt: number, w: number, h: number): void {
+/** The player's shots: straight up, gone past the top edge. */
+function stepShots(p: BulletPool, dt: number, w: number, h: number): void {
   for (let i = 0; i < p.n; i++) {
     if (!p.alive[i]) continue;
     const x = (p.x[i] += p.vx[i] * dt);
     const y = (p.y[i] += p.vy[i] * dt);
-    p.age[i] += dt;
     if (x < -CULL_MARGIN || x > w + CULL_MARGIN || y < -CULL_MARGIN || y > h + CULL_MARGIN) {
       killBullet(p, i);
     }
@@ -35,8 +36,8 @@ export function stepGame(g: Game, inp: Input): void {
   advanceLevel(g);
   stepEnemies(g, dt);
   updateBoss(g, dt);
-  stepBullets(g.eb, dt, g.w, g.h);
-  stepBullets(g.pb, dt, g.w, g.h);
+  stepShots(g.pb, dt, g.w, g.h);
+  stepEnemyBullets(g, dt);
   collide(g);
 }
 

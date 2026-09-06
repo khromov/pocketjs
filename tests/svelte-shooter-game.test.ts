@@ -141,16 +141,19 @@ describe("svelte-shooter player", () => {
     expect(useBomb(g)).toBe(false);
   });
 
-  test("holding fire slows the ship", () => {
+  test("the focus button slows the ship; firing does not", () => {
     const fast = createGame(288, 272, 1, SEED);
+    const firing = createGame(288, 272, 1, SEED);
     const slow = createGame(288, 272, 1, SEED);
     for (let t = 0; t < 20; t++) {
       stepGame(fast, { mx: 1, my: 0, fire: false, focus: false });
-      stepGame(slow, { mx: 1, my: 0, fire: true, focus: true });
+      stepGame(firing, { mx: 1, my: 0, fire: true, focus: false });
+      stepGame(slow, { mx: 1, my: 0, fire: false, focus: true });
     }
+    expect(firing.px).toBe(fast.px);
+    expect(firing.pb.count).toBeGreaterThan(0);
     expect(slow.px - slow.w / 2).toBeLessThan(fast.px - fast.w / 2);
-    expect(slow.pb.count).toBeGreaterThan(0);
-    expect(fast.pb.count).toBe(0);
+    expect(slow.pb.count).toBe(0);
   });
 
   test("lock fires without the button and survives a restart", () => {

@@ -118,7 +118,7 @@ describe("Svelte shooter", () => {
     await press(world, BTN.RTRIGGER);
     await run(world, 60, BTN.CROSS);
     const tree = world.getTree();
-    expect(treeHasText(tree, "B  FIRE + SLOW")).toBe(true);
+    expect(treeHasText(tree, "B  FIRE")).toBe(true);
     expect(treeHasText(tree, "CROSS  FIRE")).toBe(false);
     expect(treeHasText(tree, "LOCK ON")).toBe(true);
     expect(treeHasText(tree, "LIVES 3")).toBe(true);

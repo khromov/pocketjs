@@ -31,7 +31,7 @@ export interface Input {
   mx: number;
   my: number;
   fire: boolean;
-  /** Hold to move slower; the same button as fire. */
+  /** Hold to move slower (the left trigger). */
   focus: boolean;
 }
 

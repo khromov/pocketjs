@@ -12,7 +12,7 @@
   // into them at mount.
   import { onMount, untrack } from "svelte";
   import { setTextContent } from "@pocketjs/framework/svelte";
-  import { animate, jump } from "@pocketjs/framework/svelte/animation";
+  import { jump } from "@pocketjs/framework/svelte/animation";
   import { Image, Text, View } from "@pocketjs/framework/svelte/components";
   import type { NodeMirror } from "@pocketjs/framework/svelte/components";
   import { BTN } from "@pocketjs/framework/svelte/input";
@@ -29,7 +29,7 @@
     EV_PHASE,
     EV_PLAYER_HIT,
     EV_SHOT,
-    KIND_SLOTS,
+    MAX_EBULLETS,
     MAX_FX,
     MAX_PBULLETS,
     MODE_CLEAR,
@@ -114,7 +114,6 @@
   const sfx = createSfx();
   const input: Input = { mx: 0, my: 0, fire: false, focus: false };
   let scroll = 0;
-  let fxNext = 0;
   let scoreShown = -1;
   let frame = 0;
   let shotParity = 0;
@@ -137,18 +136,6 @@
     }
   });
 
-  function burst(x: number, y: number): void {
-    const n = fxNodes[fxNext];
-    fxNext = (fxNext + 1) % MAX_FX;
-    if (!n) return;
-    jump(n, "translateX", x);
-    jump(n, "translateY", y);
-    jump(n, "scale", 0.3);
-    jump(n, "opacity", 1);
-    animate(n, "scale", 2.2, { dur: 260, easing: "out" });
-    animate(n, "opacity", 0, { dur: 260, easing: "out" });
-  }
-
   function pad7(n: number): string {
     let s = String(n);
     while (s.length < 7) s = "0" + s;
@@ -159,16 +146,14 @@
   function handleEvents(): void {
     const ev = game.events;
     game.events = 0;
-    for (let k = 0; k < game.fxN; k++) burst(game.fxX[k], game.fxY[k]);
+    const p = presenter;
+    if (p) {
+      for (let k = 0; k < game.fxN; k++) p.burst(game.fxX[k], game.fxY[k]);
+      if (ev & EV_BOMB) p.flash();
+    }
     game.fxN = 0;
 
-    if (ev & EV_BOMB) {
-      if (flashNode) {
-        jump(flashNode, "opacity", 0.85);
-        animate(flashNode, "opacity", 0, { dur: 400, easing: "out" });
-      }
-      sfx.play(SFX_BOMB);
-    }
+    if (ev & EV_BOMB) sfx.play(SFX_BOMB);
     if ((ev & EV_BOSS_HP) !== 0 && refs.bossBar) {
       const b = game.boss;
       jump(refs.bossBar, "scaleX", b.alive ? Math.max(0, b.hp / b.maxHp) : 0);
@@ -217,8 +202,10 @@
     }
     input.mx = mx;
     input.my = my;
-    // One button: holding fire is what slows the ship.
-    input.fire = input.focus = (buttons & BTN.CROSS) !== 0;
+    input.fire = (buttons & BTN.CROSS) !== 0;
+    // Hold the left trigger to creep through a dense pattern; it mirrors the
+    // right trigger's lock toggle.
+    input.focus = (buttons & BTN.LTRIGGER) !== 0;
 
     stepGame(game, input);
     if (game.mode === MODE_PLAY) {
@@ -243,19 +230,19 @@
     ];
     bossNode = pool(enemies, 1, "absolute w-[64] h-[64]", "art/boss.png", 32, 32)[0];
     pbNodes = pool(shots, MAX_PBULLETS, "absolute w-[8] h-[32]", "art/shot.png", 4, 16);
-    ebNodes = [
-      ...pool(bullets, KIND_SLOTS[0], "absolute w-[16] h-[16]", "art/bullet-red.png", 8, 8),
-      ...pool(bullets, KIND_SLOTS[1], "absolute w-[16] h-[16]", "art/bullet-blue.png", 8, 8),
-      ...pool(bullets, KIND_SLOTS[2], "absolute w-[8] h-[8]", "art/bullet-green.png", 4, 4),
-    ];
+    // One pool for every bullet kind: the presenter re-points a slot's
+    // texture on spawn, so no kind can starve while another has room.
+    ebNodes = pool(bullets, MAX_EBULLETS, "absolute w-[16] h-[16]", "art/bullet-red.png", 8, 8);
     fxNodes = pool(fx, MAX_FX, "absolute w-[32] h-[32]", "art/burst.png", 16, 16, 0.3);
     presenter = buildPresenter({
       eb: ebNodes,
       pb: pbNodes,
       en: enNodes,
+      fx: fxNodes,
       boss: bossNode,
       player: playerNode,
       shield: shieldNode,
+      flash: flashNode,
       bgA,
       bgB,
     });

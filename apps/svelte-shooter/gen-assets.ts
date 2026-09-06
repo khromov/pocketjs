@@ -63,7 +63,7 @@ interface Glow {
 const ORBS: readonly Glow[] = [
   { out: "bullet-red.png", size: 16, diameter: 12, rgb: [255, 80, 110] },
   { out: "bullet-blue.png", size: 16, diameter: 14, rgb: [90, 200, 255] },
-  { out: "bullet-green.png", size: 8, diameter: 8, rgb: [150, 255, 120] },
+  { out: "bullet-green.png", size: 16, diameter: 8, rgb: [150, 255, 120] },
 ];
 
 // ---------------------------------------------------------------------------

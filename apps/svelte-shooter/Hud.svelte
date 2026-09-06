@@ -87,9 +87,8 @@
   </View>
 
   <View class="flex-col">
-    <Text class="text-xs text-slate-500">{aux ? "B  FIRE + SLOW" : narrow ? "CROSS  FIRE" : "CROSS  FIRE + SLOW"}</Text>
-    <Text class="text-xs text-slate-500">{aux ? "A  BOMB" : "CIRCLE  BOMB"}</Text>
-    <Text class="text-xs text-slate-500">R  LOCK</Text>
+    <Text class="text-xs text-slate-500">{aux ? "B  FIRE    A  BOMB" : narrow ? "CROSS  FIRE" : "CROSS  FIRE    CIRCLE  BOMB"}</Text>
+    <Text class="text-xs text-slate-500">L  SLOW    R  LOCK</Text>
     <Text class="text-xs text-slate-600">ART KENNEY.NL CC0</Text>
   </View>
 </View>

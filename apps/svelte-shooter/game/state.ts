@@ -9,7 +9,7 @@
 import {
   BOSS_HP,
   MODE_PLAY,
-  KIND_SLOTS,
+  MAX_EBULLETS,
   MAX_FX,
   MAX_PBULLETS,
   PLAYER_BOTTOM,
@@ -100,8 +100,8 @@ export function createGame(w: number, h: number, dt: number, seed: number): Game
     focus: false,
     score: 0,
     graze: 0,
-    eb: createBulletPool(KIND_SLOTS),
-    pb: createBulletPool([MAX_PBULLETS]),
+    eb: createBulletPool(MAX_EBULLETS),
+    pb: createBulletPool(MAX_PBULLETS),
     en: createEnemyPool(TYPE_SLOTS, TYPE_R),
     boss: {
       spawned: false,

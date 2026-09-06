@@ -11,7 +11,7 @@ export const FIELD_REF_W = 288;
 
 // Player -------------------------------------------------------------------
 export const PLAYER_SPEED = 2.8;
-/** Holding fire slows the ship to a third for threading dense patterns. */
+/** Holding the left trigger slows the ship to a third for threading dense patterns. */
 export const FOCUS_SPEED = 0.9;
 /** Hit radius: the 2 px core dot drawn at the sprite centre, nothing more. */
 export const PLAYER_R = 1;
@@ -34,13 +34,13 @@ export const BOMB_ENEMY_DMG = 40;
 export const BOMB_BOSS_DMG = 60;
 export const GRAZE_SCORE = 10;
 
-// Enemy bullets: the kind is fixed per pool slot (one texture per kind). --
+// Enemy bullets: one pool; a slot takes its kind (texture, radius) on spawn.
 export const KIND_RED = 0;
 export const KIND_BLUE = 1;
 export const KIND_GREEN = 2;
-export const KIND_SLOTS = [176, 176, 160] as const;
 export const KIND_R = [4.5, 5, 3] as const;
-export const MAX_EBULLETS = 512;
+/** A locked-on run peaks near 335 live bullets; the rest is headroom. */
+export const MAX_EBULLETS = 384;
 export const MAX_PBULLETS = 24;
 
 // Enemies ------------------------------------------------------------------

@@ -1,11 +1,12 @@
 // apps/svelte-shooter/game/pools.ts — structure-of-arrays pools.
 //
-// A slot is bound for life to one pooled host node (and, for bullets and
-// enemies, to one texture), so the pools never compact: a kill pushes the
-// index back on its kind's free stack and the slot's node is hidden. Spawns
-// pop from the stack in O(1) and return -1 when a kind is exhausted — the
-// shot is dropped rather than overwriting a live one. Everything is a typed
-// array: the per-frame loops allocate nothing.
+// A slot is bound for life to one pooled host node, so the pools never
+// compact: a kill pushes the index back on the free stack and the slot's node
+// is hidden. Spawns pop from the stack in O(1) and return -1 when the pool is
+// exhausted — the shot is dropped rather than overwriting a live one.
+// Enemies keep one texture per slot range (three types, sixteen slots);
+// bullets carry their kind per slot and the presenter swaps the texture on
+// spawn. Everything is a typed array: the per-frame loops allocate nothing.
 
 export interface BulletPool {
   readonly n: number;
@@ -14,47 +15,27 @@ export interface BulletPool {
   readonly vx: Float32Array;
   readonly vy: Float32Array;
   readonly r: Float32Array;
-  readonly age: Float32Array;
   readonly alive: Uint8Array;
   readonly grazed: Uint8Array;
-  /** Slot -> kind; constant after creation. */
+  /** Set on spawn: the texture the presenter shows and the radius family. */
   readonly kind: Uint8Array;
-  readonly kindStart: Int16Array;
-  readonly kindCount: Int16Array;
-  /** Per-kind stacks of free slots: free[kindStart[k] + j] for j < freeTop[k]. */
+  /** Stack of free slots: free[j] for j < freeTop. */
   readonly free: Int16Array;
-  readonly freeTop: Int16Array;
+  freeTop: number;
   count: number;
-  /** High-water mark of `count`; the tests size the pools with it. */
+  /** High-water mark of `count`; the tests size the pool with it. */
   peak: number;
-  /** Spawns refused because the kind was full; the tests keep it at zero. */
+  /** Spawns refused because the pool was full; the tests keep it at zero. */
   dropped: number;
 }
 
-function resetBulletStacks(p: BulletPool): void {
-  for (let k = 0; k < p.kindCount.length; k++) {
-    const start = p.kindStart[k];
-    const n = p.kindCount[k];
-    p.freeTop[k] = n;
-    // Lowest slot pops first.
-    for (let j = 0; j < n; j++) p.free[start + j] = start + n - 1 - j;
-  }
+function resetBulletStack(p: BulletPool): void {
+  // Lowest slot pops first.
+  for (let j = 0; j < p.n; j++) p.free[j] = p.n - 1 - j;
+  p.freeTop = p.n;
 }
 
-export function createBulletPool(kindSlots: readonly number[]): BulletPool {
-  let n = 0;
-  for (const c of kindSlots) n += c;
-  const kinds = kindSlots.length;
-  const kind = new Uint8Array(n);
-  const kindStart = new Int16Array(kinds);
-  const kindCount = new Int16Array(kinds);
-  let at = 0;
-  for (let k = 0; k < kinds; k++) {
-    kindStart[k] = at;
-    kindCount[k] = kindSlots[k];
-    kind.fill(k, at, at + kindSlots[k]);
-    at += kindSlots[k];
-  }
+export function createBulletPool(n: number): BulletPool {
   const p: BulletPool = {
     n,
     x: new Float32Array(n),
@@ -62,23 +43,20 @@ export function createBulletPool(kindSlots: readonly number[]): BulletPool {
     vx: new Float32Array(n),
     vy: new Float32Array(n),
     r: new Float32Array(n),
-    age: new Float32Array(n),
     alive: new Uint8Array(n),
     grazed: new Uint8Array(n),
-    kind,
-    kindStart,
-    kindCount,
+    kind: new Uint8Array(n),
     free: new Int16Array(n),
-    freeTop: new Int16Array(kinds),
+    freeTop: 0,
     count: 0,
     peak: 0,
     dropped: 0,
   };
-  resetBulletStacks(p);
+  resetBulletStack(p);
   return p;
 }
 
-/** Returns the slot, or -1 when every slot of that kind is live. */
+/** Returns the slot, or -1 when every slot is live. */
 export function spawnBullet(
   p: BulletPool,
   kind: number,
@@ -88,19 +66,17 @@ export function spawnBullet(
   vy: number,
   r: number,
 ): number {
-  const top = p.freeTop[kind];
-  if (top === 0) {
+  if (p.freeTop === 0) {
     p.dropped++;
     return -1;
   }
-  const i = p.free[p.kindStart[kind] + top - 1];
-  p.freeTop[kind] = top - 1;
+  const i = p.free[--p.freeTop];
   p.x[i] = x;
   p.y[i] = y;
   p.vx[i] = vx;
   p.vy[i] = vy;
   p.r[i] = r;
-  p.age[i] = 0;
+  p.kind[i] = kind;
   p.alive[i] = 1;
   p.grazed[i] = 0;
   p.count++;
@@ -111,16 +87,14 @@ export function spawnBullet(
 export function killBullet(p: BulletPool, i: number): void {
   if (!p.alive[i]) return;
   p.alive[i] = 0;
-  const k = p.kind[i];
-  p.free[p.kindStart[k] + p.freeTop[k]] = i;
-  p.freeTop[k]++;
+  p.free[p.freeTop++] = i;
   p.count--;
 }
 
 export function clearBullets(p: BulletPool): void {
   p.alive.fill(0);
   p.count = 0;
-  resetBulletStacks(p);
+  resetBulletStack(p);
 }
 
 export function resetBulletPool(p: BulletPool): void {
