@@ -160,7 +160,7 @@ export const SUBPATHS: Record<string, SubpathDecl> = {
       solid: "framework/src/input-api.ts",
       "vue-vapor": "framework/src/input-api-vue-vapor.ts",
       octane: "framework/src/input-api.ts",
-      svelte: "framework/src/input-api.ts",
+      svelte: "framework/src/input-api-svelte.ts",
     },
     aliases: TWINS,
   },

@@ -19,6 +19,9 @@ declare namespace svelteHTML {
     debugname?: string | undefined;
     src?: string | undefined;
     sprite?: string | undefined;
+    frameStep?: number | undefined;
+    /** svelte2tsx lowercases an element attribute before typing it; the renderer still receives `frameStep`. */
+    framestep?: number | undefined;
     package?: string | undefined;
     focused?: boolean | undefined;
     onpress?: (() => void) | undefined;

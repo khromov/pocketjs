@@ -243,7 +243,7 @@
     "./svelte/gesture": "./framework/src/gesture.svelte.ts",
     "./svelte/host": "./framework/src/host.ts",
     "./svelte/lifecycle": "./framework/src/lifecycle-svelte.ts",
-    "./svelte/input": "./framework/src/input-api.ts",
+    "./svelte/input": "./framework/src/input-api-svelte.ts",
     "./svelte/kinetics": "./framework/src/kinetics.svelte.ts",
     "./svelte/launcher": "./framework/src/launcher.ts",
     "./svelte/renderer": "./framework/src/renderer-svelte.ts",

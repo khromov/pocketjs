@@ -14,7 +14,9 @@
 // the host.
 
 import type { Snippet } from "svelte";
+import { ENUMS } from "../../../contracts/spec/spec.ts";
 import { setProp, type NodeMirror } from "../renderer-svelte.ts";
+import type { MicroTsMotionHandlerProps } from "../component-types-microts.ts";
 
 export type { NodeMirror };
 export type StyleObject = Record<string, number | string>;
@@ -49,6 +51,8 @@ export interface ImageProps {
 
 export interface SpriteProps {
   class?: string;
+  /** Core ticks per atlas frame. Overrides the sprite manifest when provided. */
+  frameStep?: number;
   sprite?: string;
   style?: StyleObject;
   debugName?: string;
@@ -64,6 +68,17 @@ export interface CompositorSurfaceProps {
   nodeRef?: NodeRef;
 }
 
+export interface AxisHandlerProps {
+  axis: "primary" | "secondary";
+  active?: boolean | (() => boolean);
+  /** The frame's summed delta on `axis`, in RelativeAxisUnits; never 0. */
+  onDelta: (delta: number) => void;
+  children?: Snippet;
+}
+
+/** The motion value to watch, its minimum quality and the typed payload callback. */
+export type MotionHandlerProps = MicroTsMotionHandlerProps & { children?: Snippet };
+
 /** `active` accepts a value or a getter, the convention the other frameworks use. */
 export function resolveActive(active: boolean | (() => boolean) | undefined): boolean {
   if (typeof active === "function") return active();
@@ -73,4 +88,15 @@ export function resolveActive(active: boolean | (() => boolean) | undefined): bo
 /** Write every host prop in `props` to `node`, skipping values the node already carries. */
 export function applyHostProps(node: NodeMirror, props: Record<string, unknown>): void {
   for (const name in props) setProp(node, name, props[name], node.domAttrs?.[name]);
+}
+
+/**
+ * Turn the host element an input handler renders (ActionHandler,
+ * AxisHandler, MotionHandler) into its placement marker: the node whose
+ * position in the tree orders the handler's callback in the frame's press
+ * queue (frame-dispatch.ts). `display: none` keeps it out of flex gaps.
+ */
+export function inputMarker(node: NodeMirror): NodeMirror {
+  setProp(node, "style", { display: ENUMS.Display.None }, undefined);
+  return node;
 }

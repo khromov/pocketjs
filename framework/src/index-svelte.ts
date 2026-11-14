@@ -11,6 +11,7 @@ import {
   installFrameHandler,
   installHost,
   installResizeViewportHook,
+  publishViewport,
   type HostOps,
 } from "./host.ts";
 import { initDevtools, wrapFrameHandler } from "./devtools.ts";
@@ -31,17 +32,35 @@ import {
 import { setOverlayRoot } from "./overlay.ts";
 import { mountAuxiliarySurface, unmountAuxiliarySurface } from "./display.ts";
 import { registerStyles, resolveStyle } from "./styles.ts";
-import { handleFrame, setAuxiliaryHitRoot, setHitRoot, setInputRoot } from "./input.ts";
+import {
+  handleFrame,
+  setAuxiliaryHitRoot,
+  setHitRoot,
+  setInputRoot,
+  withDeferredPress,
+  type DeferredPress,
+} from "./input.ts";
 import { __setAnalog, resetFrameHooks, runFrameHooks } from "./frame.svelte.ts";
+import type { AxisDelta } from "./relative-axis.ts";
+import type { MotionState } from "./motion.ts";
 import { __runGestures, resetGestures } from "./gesture.ts";
 import { installTouchActivation } from "./touch-activation.ts";
 import { __resetTouches, __setTouches } from "./touch.ts";
+import {
+  __dispatchTextEvents,
+  __resetTextInput,
+  __setTextEvents,
+  type TextEventRecord,
+} from "./text-input.ts";
 import { __advanceClock, resetClock } from "./clock.ts";
 import { __drainEffects, resetEffects } from "./effects.ts";
 import { runServicePumps } from "./services.ts";
 import { entries as pakEntries, get as pakGet, hasPack, loadPack } from "./pak.ts";
 import { STYLE_IDS as DEFAULT_STYLE_IDS } from "./styles.generated.ts";
 import { ENUMS, SCREEN_H, SCREEN_W } from "../../contracts/spec/spec.ts";
+
+/** Gesture recognition for one frame's deferred presses; shared across frames. */
+const runDeferredGestures = (defer: DeferredPress): void => withDeferredPress(defer, __runGestures);
 
 export interface RenderOptions {
   /** web/wasm/test hosts inject their ops here; omit on PSP (globalThis.ui). */
@@ -137,6 +156,10 @@ export function resizeViewport(w: number, h: number): void {
   );
   const ops = getOps() as HostOps & { __viewport?: { w: number; h: number } };
   ops.__viewport = { w, h };
+  publishViewport(w, h);
+  // A resize arrives between frames; commit the state its listeners wrote
+  // (useViewport) before the host draws, as Solid's synchronous signals do.
+  flushSync();
 }
 
 export function render(code: SvelteRenderRoot, opts: RenderOptions = {}): () => void {
@@ -228,15 +251,27 @@ export function render(code: SvelteRenderRoot, opts: RenderOptions = {}): () => 
       touches?: readonly number[],
       hits?: readonly number[],
       touchSurfaces?: readonly number[],
+      rightAnalog?: number,
+      axisDeltas?: readonly AxisDelta[],
+      motion?: MotionState | null,
+      text?: readonly TextEventRecord[],
     ) => {
       __advanceClock();
-      __setAnalog(analog);
+      __setAnalog(analog, rightAnalog);
       __setTouches(touches, hits, touchSurfaces); // latch contacts + surface-specific hit facts
+      __setTextEvents(text); // the keyboard's events for this frame
       runServicePumps();
       __drainEffects();
-      __runGestures(); // contact lifecycles resolve before app hooks read them
-      runFrameHooks(buttons);
-      handleFrame(buttons);
+      __dispatchTextEvents(); // typed text lands before button handlers run
+      // Gestures, then frame callbacks, then every press (placed handlers and
+      // the focused node's CIRCLE) in document order (frame-dispatch.ts).
+      runFrameHooks(
+        buttons,
+        axisDeltas,
+        defer => handleFrame(buttons, defer),
+        runDeferredGestures,
+        motion,
+      );
       // Svelte schedules effects on the microtask queue; flushing here lands a
       // handler's state write in this frame, before the sweep destroys what it
       // detached.
@@ -250,6 +285,7 @@ export function render(code: SvelteRenderRoot, opts: RenderOptions = {}): () => 
   return () => {
     removeResizeViewportHook();
     __resetTouches();
+    __resetTextInput();
     resetGestures();
     dispose();
     setInputRoot(null);
@@ -284,7 +320,7 @@ export function mount(code: SvelteRenderRoot, opts: MountOptions = {}): () => vo
 }
 
 export type { HostOps, Host } from "./host.ts";
-export { detectHost, installHost, getOps } from "./host.ts";
+export { detectHost, installHost, getOps, onViewport } from "./host.ts";
 export type { NodeMirror, SvelteRenderRoot } from "./renderer-svelte.ts";
 export { retain, release, runSweep, registerTexture, registerSprite, missCounters } from "./renderer-svelte.ts";
 // The text-shaped sibling of animate(): per-frame text through a nodeRef,

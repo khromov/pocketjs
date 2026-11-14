@@ -15,6 +15,8 @@ export { default as Focusable } from "./svelte/Focusable.svelte";
 export { default as FocusScope } from "./svelte/FocusScope.svelte";
 export { default as FocusGrid } from "./svelte/FocusGrid.svelte";
 export { default as ActionHandler } from "./svelte/ActionHandler.svelte";
+export { default as AxisHandler } from "./svelte/AxisHandler.svelte";
+export { default as MotionHandler } from "./svelte/MotionHandler.svelte";
 export { default as Portal } from "./svelte/Portal.svelte";
 export { default as AuxiliarySurface } from "./svelte/AuxiliarySurface.svelte";
 export { default as AuxiliaryPortal } from "./svelte/AuxiliaryPortal.svelte";
@@ -24,9 +26,13 @@ export { default as Grid } from "./svelte/Grid.svelte";
 export { default as Lazy } from "./svelte/Lazy.svelte";
 export { default as Gallery } from "./svelte/Gallery.svelte";
 
+export { useViewport, type Viewport, type ViewportSize } from "./viewport.svelte.ts";
+
 export type {
+  AxisHandlerProps,
   CompositorSurfaceProps,
   ImageProps,
+  MotionHandlerProps,
   NodeRef,
   SpriteProps,
   StyleObject,
