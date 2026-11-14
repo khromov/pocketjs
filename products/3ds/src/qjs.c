@@ -43,10 +43,6 @@
 #error "POCKETJS_HOST_ABI must match POCKET_BINDING_GENERATION"
 #endif
 
-/* contracts/spec/spec.ts FIXED_DT: the core steps at exactly 1/60 s, and this
- * host presents at the same rate, so the advertised simulation rate is 60. */
-#define POCKETJS_SIMULATION_HZ 60
-
 typedef enum {
   HostMediaOpen,
   HostMediaClose,
@@ -149,6 +145,14 @@ static bool boot_has_worker;
 /* Mirrors the worker's channels into this realm; detached before either
  * the worker core or this context is destroyed. */
 static pocket_worker_ui *ui_bridge;
+/* The presentation rate (qjs.h). rate_slot is the embedded app's runtime
+ * slot; boot_at_rate says the boot in progress comes from it; rate_ticks is
+ * the core ticks each guest frame advances while the guest presents at
+ * POCKETJS_SIM_HZ, and 0 leaves the frame to pocket_runtime_tick at the
+ * runtime's own cadence. */
+static char rate_slot[17];
+static bool boot_at_rate;
+static uint32_t rate_ticks;
 
 static void set_error(const char *message) {
   size_t length = message == NULL ? 0 : strlen(message);
@@ -833,6 +837,22 @@ static int32_t guest_initialize(void *self, pocket_runtime *owner,
   if (status)
     return status;
   global = JS_GetGlobalObject(context);
+  /* The C counterpart of programs/psp/src/instance.rs `fixed_cadence`: the
+   * canonical guest published the runtime's cadence as __simHz (60 on this
+   * host); a guest presenting at POCKETJS_SIM_HZ reads that rate before its
+   * bundle runs, and its frames advance tick_hz / POCKETJS_SIM_HZ core ticks
+   * so animations and the simulation keep their 60 Hz speed. A package rate
+   * the build's rate does not divide keeps the runtime's cadence. */
+  if (POCKETJS_SIM_HZ != 60 && boot_at_rate &&
+      environment->tick_hz % POCKETJS_SIM_HZ == 0 &&
+      environment->tick_hz / POCKETJS_SIM_HZ <= 60) {
+    if (JS_SetPropertyStr(context, global, "__simHz",
+                          JS_NewInt32(context, POCKETJS_SIM_HZ)) < 0) {
+      take_exception();
+      return -1;
+    }
+    rate_ticks = environment->tick_hz / POCKETJS_SIM_HZ;
+  }
   return install_host();
 }
 /* The bundle into the realm: from the cached bytecode when the boot carries
@@ -961,6 +981,14 @@ static int on_interrupt(JSRuntime *rt, void *opaque) {
 
 void qjs_set_interrupt(QjsInterrupt hook) { interrupt_hook = hook; }
 
+void qjs_set_rate_slot(const char *slot) {
+  snprintf(rate_slot, sizeof rate_slot, "%s", slot == NULL ? "" : slot);
+}
+
+uint32_t qjs_frame_vblanks(void) {
+  return rate_ticks ? POCKETJS_TICKS_PER_FRAME : 1;
+}
+
 bool qjs_interrupted(void) { return interrupted; }
 
 bool qjs_boot(PocketRuntimePackage *package, const uint8_t *bytecode,
@@ -970,6 +998,9 @@ bool qjs_boot(PocketRuntimePackage *package, const uint8_t *bytecode,
   interrupted = false;
   first_present = false;
   boot_has_worker = package->guest.worker_javascript_length != 0;
+  rate_ticks = 0;
+  boot_at_rate = rate_slot[0] != '\0' &&
+                 strcmp(package->guest.slot, rate_slot) == 0;
   boot_bytecode = bytecode;
   boot_bytecode_length = bytecode_length;
   boot_compiled = compiled;
@@ -1062,8 +1093,22 @@ bool qjs_frame(int32_t buttons, int32_t analog, const uint32_t *touches,
   if (first_present)
     return qjs_present();
   instance_input(buttons, analog, touches, count, right);
-  if (pocket_runtime_tick(instance)) {
+  bool ran;
+  if (rate_ticks) {
+    /* One guest turn, rate_ticks core ticks, then the presentation that
+     * pocket_runtime_tick would run. The facade's own input source polls an
+     * empty frame first; the 3DS source registered at compose appends the
+     * buttons, sticks and contacts instance_input latched above. */
+    static const pocket_input_frame no_input = {.struct_size = sizeof no_input};
+    ran = pocket_qjs_program_advance(program, &no_input, rate_ticks) &&
+          pocket_runtime_present(instance) == 0;
+  } else {
+    ran = pocket_runtime_tick(instance) == 0;
+  }
+  if (!ran) {
     const char *message = pocket_guest_quickjs_error(guest);
+    if (!(message && *message) && rate_ticks)
+      message = pocket_qjs_program_error(program);
     set_error(message && *message ? message
                                   : "3DS runtime frame or presentation failed");
     return false;
@@ -1078,6 +1123,7 @@ void qjs_shutdown(void) {
     program = NULL;
   }
   release(NULL);
+  rate_ticks = 0;
 #ifdef POCKETJS_MEDIA
   media_forget_guest();
 #endif

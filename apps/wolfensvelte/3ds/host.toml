@@ -1,5 +1,5 @@
-# PocketJS host policy for the 3DS build; tools/3ds.ts reads it
-# (docs/DETERMINISM.md). Present at 30 Hz with two 60 Hz core ticks per frame:
-# at 60 Hz a frame of this app that misses the 16.7 ms vblank budget halves
-# the game's speed.
+# PocketJS host policy for the 3DS build; products/3ds/build.ts (bun
+# tools/3ds.ts, bun run 3ds:svelte) reads it (docs/DETERMINISM.md). Present at
+# 30 Hz with two 60 Hz core ticks per frame: at 60 Hz a frame of this app that
+# misses the 16.7 ms vblank budget halves the game's speed.
 pocketjs_sim_hz = 30

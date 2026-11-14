@@ -16,6 +16,8 @@
 #   POCKETJS_SMDH_TITLE      SMDH metadata
 #   POCKETJS_SMDH_AUTHOR
 #   POCKETJS_SMDH_DESC
+#   POCKETJS_SIM_HZ          presentation rate of the embedded app, a divisor
+#                            of 60; empty presents at 60 (src/qjs.h)
 #   POCKETJS_EXTENSION       a directory whose extension.mk adds a product extension
 #                            (include/pocket_extension.h)
 #   POCKETJS_EXTENSION_ROMFS the directory staged as romfs:/extension
@@ -107,6 +109,10 @@ endif
 
 ifeq ($(POCKETJS_MEDIA),1)
 CFLAGS += -DPOCKETJS_MEDIA
+endif
+
+ifneq ($(POCKETJS_SIM_HZ),)
+CFLAGS += -DPOCKETJS_SIM_HZ=$(POCKETJS_SIM_HZ)
 endif
 
 ifneq ($(POCKETJS_EXTENSION),)

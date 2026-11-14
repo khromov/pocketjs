@@ -4,8 +4,11 @@
  * independent PICA Renderer and Display drivers.
  *
  * Frame order (docs/DESIGN.md, the shape programs/psp/src/main.rs drives):
- * hidScanInput -> one Runtime tick (contacts, guest, simulation, layout,
- * render and terminal display waits) -> the host's next shared clock boundary.
+ * hidScanInput -> the host's shared clock boundary (begin_frame_wait) -> one
+ * Runtime tick (contacts, guest, simulation, layout, render and terminal
+ * display waits). A guest that presents below 60 Hz (qjs.h POCKETJS_SIM_HZ)
+ * begins a frame every qjs_frame_vblanks() vblanks and advances 60 / its
+ * rate core ticks in each one.
  *
  * The app owns a 400x240 primary surface and a simultaneous 320x240 auxiliary
  * surface. Both render targets are ROTATED, and Mtx_OrthoTilt in the PICA driver keeps
@@ -909,8 +912,24 @@ static uint32_t ticks_to_us(u64 ticks) {
 }
 #endif
 
+#ifndef POCKETJS_CAPTURE
+/* ARM11 system ticks per LCD refresh: SYSCLOCK_ARM11 (268111856 Hz) over the
+ * panels' 59.83 Hz. */
+#define VBLANK_SYSTEM_TICKS 4481136ull
+/* The system tick after the vblank the previous frame began at. */
+static u64 last_frame_begin;
+#endif
+
 /* Returns the vblanks waited beyond the first: nonzero when the previous
- * frame's GPU work was still running at the vblank. */
+ * frame's GPU work was still running at the vblank.
+ *
+ * A guest that presents below 60 Hz begins a frame every
+ * qjs_frame_vblanks() vblanks. The vblanks that passed during the previous
+ * frame's work count toward them: after the first wait, waiting continues
+ * only while the clock is more than half a refresh short of the vblank that
+ * many refreshes after the previous frame's begin. At 30 Hz, 10 ms of work
+ * waits two vblanks and 25 ms waits one. A capture build waits for no
+ * vblank, so its frames depend on the tape alone. */
 static uint32_t begin_frame_wait(uint32_t run_frame) {
 #ifdef POCKETJS_CAPTURE
   (void)run_frame;
@@ -921,6 +940,12 @@ static uint32_t begin_frame_wait(uint32_t run_frame) {
   loading_end();
   /* A bounded wait keeps HOME alive when the prior command list hangs. */
   gspWaitForVBlank();
+  uint32_t vblanks = qjs_frame_vblanks();
+  if (vblanks > 1) {
+    u64 due = last_frame_begin + vblanks * VBLANK_SYSTEM_TICKS - VBLANK_SYSTEM_TICKS / 2;
+    for (uint32_t extra = 1; extra < vblanks && svcGetSystemTick() < due; extra++)
+      gspWaitForVBlank();
+  }
   uint32_t waited = 0;
   while (!C3D_FrameBegin(C3D_FRAME_NONBLOCK)) {
     gspWaitForVBlank();
@@ -939,6 +964,7 @@ static uint32_t begin_frame_wait(uint32_t run_frame) {
     }
   }
   C3D_FrameEnd(0);
+  last_frame_begin = svcGetSystemTick();
   return waited;
 #endif
 }
@@ -1390,6 +1416,9 @@ int main(void) {
   aux_view_height = guest_aux_height(&embedded->guest);
   raster_density = embedded->guest.raster_density;
   if (!runtime_select_slot(embedded->guest.slot)) fail("package app id gave no runtime slot");
+  /* The build's presentation rate belongs to the embedded app and its
+   * updates, which share its slot (qjs.h). */
+  qjs_set_rate_slot(embedded->guest.slot);
 
   primary_target = C3D_RenderTargetCreate(
     VIEW_H,

@@ -88,7 +88,9 @@ profile's auxiliary display. The release hook detaches the worker bridge,
 stops the worker and forgets the runtime before the facade destroys the
 program, after a failed compose or boot as well as at `qjs_shutdown`. Frames
 call `pocket_runtime_present` and `pocket_runtime_tick` on the runtime that
-`pocket_qjs_program_runtime` returns.
+`pocket_qjs_program_runtime` returns; a guest that presents below 60 Hz
+advances through `pocket_qjs_program_advance` before its present
+([Presentation rate](#presentation-rate)).
 
 ```sh
 bun tools/3ds.ts 3ds-demo              # dist/3ds/<output>.3dsx
@@ -133,6 +135,47 @@ replace its RomFS. See [the minimal program](../../programs/3ds/README.md).
 `pocket build --target 3ds --pocket <application.pocket>` selects this product
 and its `3ds-dev` host contract. Existing `tools/3ds.ts` options delegate to
 `products/3ds/build.ts`, including capture, CIA and package-only builds.
+
+## Presentation rate
+
+**An app can present below 60 Hz on this product.** It declares the rate in
+`<entry dir>/3ds/host.toml`, with the line the PSP reads from `psp/Psp.toml`
+([docs/DETERMINISM.md](../../docs/DETERMINISM.md)):
+
+```toml
+pocketjs_sim_hz = 30
+```
+
+`products/3ds/build.ts` reads the line (`threeDsSimHz`, parsed by
+`tools/sim-hz.ts`), logs `presents at 30 Hz`, and passes it to the Makefile as
+`POCKETJS_SIM_HZ`, which compiles **`-DPOCKETJS_SIM_HZ=30`** into every object
+(`dist/3ds/build/<output>/cflags.stamp` shows it). `src/qjs.h` rejects a value
+that does not divide 60. Without the file the build has no define and presents
+at 60, and the program stays the same for every such app.
+`apps/svelte-shooter` and `apps/wolfensvelte` declare 30.
+
+**The rate belongs to the embedded app.** `main.c` passes the embedded
+package's runtime slot to `qjs_set_rate_slot`. A guest from that slot, the
+embedded package or an update of it, presents at the rate; an installed app
+the launcher switches to presents at 60. For a guest at the rate:
+
+- `guest_initialize` in `src/qjs.c` overwrites `globalThis.__simHz` with the
+  rate before the bundle runs, the C counterpart of `fixed_cadence` in
+  `programs/psp/src/instance.rs`. The framework clock's `ticksPerFrame()` reads
+  2 at 30 Hz.
+- `qjs_frame` runs one guest turn and **`tick_hz / rate` fixed core ticks**
+  through `pocket_qjs_program_advance`, then `pocket_runtime_present`, in place
+  of `pocket_runtime_tick`. Animations and the simulation keep their 60 Hz
+  speed. The facade's input source, registered when the program is created,
+  polls an empty frame; the 3DS input source, registered at compose, appends
+  the buttons, sticks and contacts after it, so every guest turn sees the
+  hardware state.
+- `begin_frame_wait` in `main.c` begins a frame **every `60 / rate` vblanks**
+  and counts the vblanks that passed during the previous frame's work: at
+  30 Hz a 10 ms frame waits two vblanks and a 25 ms frame waits one. A capture
+  build waits for no vblank and advances the same core ticks per frame, so its
+  frame numbers count 30 Hz frames (the wolfensvelte spec in
+  `tests/golden-specs.ts`).
 
 ## Updating the guest from SD
 

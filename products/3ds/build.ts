@@ -50,6 +50,8 @@ import { capture, prepareNative3ds, runNative3dsMake } from "../../tools/build/3
 //   POCKETJS_SMDH_TITLE    application title  (3dsxtool --smdh metadata)
 //   POCKETJS_SMDH_AUTHOR   application id
 //   POCKETJS_SMDH_DESC     application description
+//   POCKETJS_SIM_HZ        presentation rate from <entry dir>/3ds/host.toml,
+//                          "" for 60 (threeDsSimHz)
 //   POCKETJS_CAPTURE       "1" under --capture, "" otherwise
 //   POCKETJS_CAPTURE_INPUT scripted input tape ("frame:mask,…"), baked in
 //   POCKETJS_CAPTURE_TOUCH scripted bottom-screen touch tape, baked in
@@ -69,9 +71,9 @@ import { capture, prepareNative3ds, runNative3dsMake } from "../../tools/build/3
 //
 // The viewport, the raster density and the application's state slot on the
 // SD card are not among them: the host reads all three at boot from the plan
-// and identity of romfs:/app.pocket. Apart from --capture, io.offload and
-// media.playback builds, the code segments are therefore the same for every
-// app, and they are the ones the generic runtime carries.
+// and identity of romfs:/app.pocket. Apart from --capture, io.offload,
+// media.playback and pocketjs_sim_hz builds, the code segments are therefore
+// the same for every app, and they are the ones the generic runtime carries.
 
 import { $ } from "bun";
 import { ensureThreeDsProfileHeader } from "../../tools/3ds-contracts.ts";
@@ -107,6 +109,7 @@ import {
   resolve3dsBuildPlan,
 } from "../../tools/3ds-profile.ts";
 import { makeVariant } from "../../tools/pocket-pack.ts";
+import { readSimHz } from "../../tools/sim-hz.ts";
 const softwareProfile = POCKET_PROFILES["3ds-dev"];
 
 const repository = new URL("../..", import.meta.url).pathname; // PocketJS/
@@ -518,6 +521,30 @@ async function loadBuildPlan(
 }
 
 // ---------------------------------------------------------------------------
+// Presentation rate
+// ---------------------------------------------------------------------------
+
+/**
+ * The host policy file of the app whose entry is `entry`:
+ * <entry dir>/3ds/host.toml, the 3DS counterpart of the PSP's psp/Psp.toml.
+ */
+export function threeDsHostPolicy(entry: string, projectRoot: string): string {
+  return resolvePath(projectRoot, entry, "..", "3ds", "host.toml");
+}
+
+/**
+ * The rate the app presents at on this product (docs/DETERMINISM.md): its
+ * `pocketjs_sim_hz` in threeDsHostPolicy(), as a decimal string, or "" when
+ * the file or the key is absent and the guest presents at 60 Hz. The Makefile
+ * compiles a value in as -DPOCKETJS_SIM_HZ; products/3ds/src/qjs.h rejects
+ * one that does not divide 60.
+ */
+export function threeDsSimHz(entry: string, projectRoot: string): string {
+  const hostPolicy = threeDsHostPolicy(entry, projectRoot);
+  return existsSync(hostPolicy) ? readSimHz(readFileSync(hostPolicy, "utf8"), hostPolicy) : "";
+}
+
+// ---------------------------------------------------------------------------
 // Native steps shared with tools/runtime/3ds.ts
 // ---------------------------------------------------------------------------
 
@@ -554,6 +581,13 @@ export async function build3ds(argv: readonly string[], context?: RuntimeBuildCo
   if (context && !context.application) throw new Error("3DS native build requires an admitted package");
   const { plan, planPath, manifestPath } = context?.application ?? await loadBuildPlan(args);
   const inputs = extractHostBuildInputs(plan, { expectedTarget: TARGET_ID });
+  const simHz = threeDsSimHz(plan.app.entry, args.projectRoot);
+  if (simHz) {
+    console.log(
+      `PocketJS 3ds: presents at ${simHz} Hz ` +
+        `(pocketjs_sim_hz in ${threeDsHostPolicy(plan.app.entry, args.projectRoot)})`,
+    );
+  }
   const capture = args.capture
     ? captureDefines(process.env)
     : { input: "", touch: "", start: "", count: "" };
@@ -651,6 +685,7 @@ export async function build3ds(argv: readonly string[], context?: RuntimeBuildCo
     POCKETJS_SMDH_TITLE: plan.app.title,
     POCKETJS_SMDH_AUTHOR: plan.app.id,
     POCKETJS_SMDH_DESC: `PocketJS ${plan.app.title}`,
+    POCKETJS_SIM_HZ: simHz,
     POCKETJS_CAPTURE: args.capture ? "1" : "",
     // Explicit so a previous run's tape never lingers in the object cache.
     POCKETJS_CAPTURE_INPUT: capture.input,
