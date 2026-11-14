@@ -1,3 +1,79 @@
+const SHT_SYMTAB = 2;
+const SHT_STRTAB = 3;
+const SHT_RELA = 4;
+const SHT_REL = 9;
+const SHT_PSP_REL = 0x700000a0;
+const SHF_ALLOC = 2;
+
+/**
+ * Drop the symbol table and its string table from a PRX. The PSP kernel loads
+ * the flat segment and applies the SHT_PSP_REL sections, whose entries name
+ * segments by index, not symbols; `.symtab` and `.strtab` only serve debuggers
+ * (337 KB of a Wolfensvelte EBOOT). Every allocated byte keeps its file offset;
+ * the kept non-allocated sections (relocations, `.shstrtab`, `.comment`) are
+ * re-laid after the segment in their original order, section indices are
+ * renumbered, and a relocation section's link to the dropped symbol table
+ * becomes 0. The unstripped PRX stays in the cargo target directory.
+ */
+export function stripPspPrx(bytes: Uint8Array): Uint8Array {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const u16 = (offset: number) => view.getUint16(offset, true);
+  const u32 = (offset: number) => view.getUint32(offset, true);
+  const shoff = u32(32), shcount = u16(48), shstrndx = u16(50);
+  const sections = Array.from({ length: shcount }, (_, index) => {
+    const at = shoff + index * 40;
+    return { index, header: bytes.slice(at, at + 40), type: u32(at + 4), flags: u32(at + 8), offset: u32(at + 16), size: u32(at + 20), align: Math.max(1, u32(at + 32)) };
+  });
+  const dropped = (s: (typeof sections)[number]) =>
+    s.index !== shstrndx && (s.flags & SHF_ALLOC) === 0 && (s.type === SHT_SYMTAB || s.type === SHT_STRTAB);
+  if (!sections.some(dropped)) return bytes;
+  const kept = sections.filter((s) => !dropped(s));
+  const renumber = new Map(kept.map((s, index) => [s.index, index]));
+
+  // Everything the kernel reads lives below the end of the last allocated section with file bytes.
+  let imageEnd = 52 + u16(42) * u16(44);
+  for (const s of sections) {
+    if ((s.flags & SHF_ALLOC) !== 0 && s.type !== 8) imageEnd = Math.max(imageEnd, s.offset + s.size);
+  }
+  const chunks: Uint8Array[] = [bytes.subarray(0, imageEnd)];
+  let at = imageEnd;
+  for (const s of kept) {
+    if (s.index === 0 || (s.flags & SHF_ALLOC) !== 0 || s.offset < imageEnd) continue;
+    const pad = (s.align - (at % s.align)) % s.align;
+    if (pad) chunks.push(new Uint8Array(pad));
+    at += pad;
+    new DataView(s.header.buffer).setUint32(16, at, true);
+    chunks.push(bytes.subarray(s.offset, s.offset + s.size));
+    at += s.size;
+  }
+  const headerPad = (4 - (at % 4)) % 4;
+  if (headerPad) chunks.push(new Uint8Array(headerPad));
+  const newShoff = at + headerPad;
+  for (const s of kept) {
+    const header = new DataView(s.header.buffer);
+    const link = header.getUint32(24, true);
+    header.setUint32(24, renumber.get(link) ?? 0, true);
+    if (s.type === SHT_REL || s.type === SHT_RELA || s.type === SHT_PSP_REL) {
+      const target = header.getUint32(28, true);
+      const next = renumber.get(target);
+      if (next === undefined) throw new Error(`stripPspPrx: relocation section ${s.index} targets dropped section ${target}`);
+      header.setUint32(28, next, true);
+    }
+    chunks.push(s.header);
+  }
+  const out = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
+  let offset = 0;
+  for (const c of chunks) {
+    out.set(c, offset);
+    offset += c.length;
+  }
+  const outView = new DataView(out.buffer);
+  outView.setUint32(32, newShoff, true);
+  outView.setUint16(48, kept.length, true);
+  outView.setUint16(50, renumber.get(shstrndx)!, true);
+  return out;
+}
+
 /** Check the flat image consumed by the PSP kernel before shipping a PRX. */
 export function verifyPspPrx(bytes: Uint8Array): void {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);

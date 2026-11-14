@@ -436,12 +436,20 @@ if (context) await context.run([toolchain.rustup, "run", toolchain.rustToolchain
 else await $`${toolchain.rustup} run ${toolchain.rustToolchain} cargo psp ${cargoArgs}`.cwd(nativeDir).env(env);
 
 const profile = outputProfile(cargoArgs);
-const { verifyPspPrx } = await import("./psp-prx.ts");
+const { stripPspPrx, verifyPspPrx } = await import("./psp-prx.ts");
 verifyPspPrx(new Uint8Array(await Bun.file(`${nativeDir}target/mipsel-sony-psp/${profile}/pocketjs-psp.prx`).arrayBuffer()));
 const binEboot = `${nativeDir}target/mipsel-sony-psp/${profile}/pocketjs-psp.EBOOT.PBP`;
 const conventionalEboot = `${nativeDir}target/mipsel-sony-psp/${profile}/EBOOT.PBP`;
 if (existsSync(binEboot)) {
-  await Bun.write(conventionalEboot, await Bun.file(binEboot).arrayBuffer());
+  // The shipped EBOOT carries the PRX without .symtab/.strtab (tools/psp-prx.ts
+  // stripPspPrx); target/.../pocketjs-psp.prx keeps them for symbolication.
+  const { pbpParts, pbpWrite } = await import("./repack/psp.ts");
+  const parts = pbpParts(new Uint8Array(await Bun.file(binEboot).arrayBuffer()));
+  const prx = stripPspPrx(parts[6]!);
+  verifyPspPrx(prx);
+  console.log(`PocketJS psp: DATA.PSP ${parts[6]!.length} -> ${prx.length} bytes (symbol table dropped)`);
+  parts[6] = prx;
+  await Bun.write(conventionalEboot, pbpWrite(parts));
 }
 console.log(`output: ${conventionalEboot}`);
 
