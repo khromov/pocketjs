@@ -45,8 +45,9 @@ goldens and tapes all run the default.
 
 Hosts publish the policy as `globalThis.__simHz` before the bundle evals
 (web host: `?hz=2`; sim host: scenario option; PSP: standalone packages at
-60, multi-app packages at 20). Apps read time through the clock API and stay
-hz-portable by expressing time in seconds, never raw frame counts:
+the rate in the app's `psp/Psp.toml`, multi-app packages at 20). Apps read
+time through the clock API and stay hz-portable by expressing time in seconds,
+never raw frame counts:
 
 ```ts
 import { after, virtualNow, simulationHz } from "@pocketjs/framework/clock";
@@ -54,6 +55,17 @@ import { after, virtualNow, simulationHz } from "@pocketjs/framework/clock";
 after(1.5, () => setPhase("menu")); // fires 1.5 VIRTUAL seconds out —
 // frame 90 at 60 Hz, frame 3 at 2 Hz, the same instant of the same journey.
 ```
+
+A standalone PSP package presents at **60 Hz** unless the app's
+`psp/Psp.toml` declares `pocketjs_sim_hz = <n>`, where `n` divides 60.
+`tools/psp.ts` reads the key, strips it before cargo-psp parses the file, and
+passes it to `hosts/psp/build.rs` as `POCKETJS_SIM_HZ`; the host then runs
+`60 / n` core ticks per presented frame and waits `60 / n` vblanks between
+swaps. A game whose frame takes longer than **16.7 ms** on the console declares
+30: at 60 Hz each late frame waits for the next vblank, and a game that steps
+once per frame then plays at half speed. Game code that counts in 60 Hz ticks
+runs `ticksPerFrame()` steps per frame (`apps/wolfensvelte/app.svelte`) or
+scales its rates by it (`apps/svelte-shooter`, `dt = ticksPerFrame()`).
 
 `after()` is the deterministic replacement for `setTimeout`: its deadline is
 a frame index, its firing order is (deadline, insertion order), and it holds

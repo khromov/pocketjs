@@ -288,6 +288,24 @@ fn main() {
     // skip raw frame dumps while still using the capture window to exit.
     let arena_bytes = env::var("POCKETJS_ARENA_BYTES").unwrap_or_default();
     let bench_dump_frames = env::var("POCKETJS_BENCH_DUMP_FRAMES").unwrap_or_default();
+    // Standalone presentation rate (docs/DETERMINISM.md): the app's
+    // `pocketjs_sim_hz` from <app>/psp/Psp.toml, passed by tools/psp.ts.
+    // Empty = the 60 Hz core rate. A multi-app package runs the fixed 20 Hz
+    // launcher policy for every guest, so a rate here would be ignored there.
+    let sim_hz = env::var("POCKETJS_SIM_HZ").unwrap_or_default();
+    if !sim_hz.is_empty() {
+        let hz: u32 = sim_hz
+            .parse()
+            .unwrap_or_else(|_| panic!("POCKETJS_SIM_HZ must be a positive integer, got {sim_hz:?}"));
+        assert!(
+            hz >= 1 && 60 % hz == 0,
+            "POCKETJS_SIM_HZ must divide 60 (1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60), got {hz}"
+        );
+        assert!(
+            registry.is_empty(),
+            "POCKETJS_SIM_HZ is a standalone-package rate; multi-app packages run at 20 Hz"
+        );
+    }
 
     println!("cargo:rustc-env=POCKETJS_APP={app}");
     println!("cargo:rustc-env=POCKETJS_TARGET={target}");
@@ -298,6 +316,7 @@ fn main() {
     println!("cargo:rustc-env=POCKETJS_CAP_N={cap_n}");
     println!("cargo:rustc-env=POCKETJS_ARENA_BYTES={arena_bytes}");
     println!("cargo:rustc-env=POCKETJS_BENCH_DUMP_FRAMES={bench_dump_frames}");
+    println!("cargo:rustc-env=POCKETJS_SIM_HZ={sim_hz}");
     println!("cargo:rerun-if-env-changed=POCKETJS_APP");
     println!("cargo:rerun-if-env-changed=POCKETJS_APP_OUTPUT");
     println!("cargo:rerun-if-env-changed=POCKETJS_EMBED_APP");
@@ -317,6 +336,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=POCKETJS_CAP_N");
     println!("cargo:rerun-if-env-changed=POCKETJS_ARENA_BYTES");
     println!("cargo:rerun-if-env-changed=POCKETJS_BENCH_DUMP_FRAMES");
+    println!("cargo:rerun-if-env-changed=POCKETJS_SIM_HZ");
     if let Ok(entries) = fs::read_dir(&dist) {
         for e in entries.flatten() {
             println!("cargo:rerun-if-changed={}", e.path().display());

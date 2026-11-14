@@ -19,7 +19,7 @@
 //   bun tools/gen-demo-covers.ts --framework=octane   (the Octane twins)
 
 import { createCanvas, GlobalFonts, type SKRSContext2D } from "@napi-rs/canvas";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { runScenario } from "../hosts/sim/sim.ts";
 import { BTN } from "../contracts/spec/spec.ts";
 import { FRAMEWORKS, parseFramework, type PocketFramework } from "../framework/compiler/jsx-plugin.ts";
@@ -352,7 +352,15 @@ title = "${title}"
 xmb_icon_png = "icon0.png"
 xmb_background_png = "pic1.png"
 `;
-  await Bun.write(out + "Psp.toml", toml);
+  // `pocketjs_sim_hz` is host policy that tools/psp.ts reads from this file,
+  // not cover metadata: carry it over so regenerating the art keeps the rate.
+  const previous = existsSync(out + "Psp.toml") ? readFileSync(out + "Psp.toml", "utf8") : "";
+  const policy = previous.match(/^[ \t]*pocketjs_sim_hz\b.*$/gm) ?? [];
+  const policyBlock = policy.length === 0
+    ? ""
+    : "\n# PocketJS host policy, stripped by tools/psp.ts before cargo-psp reads this\n" +
+      "# file (docs/DETERMINISM.md).\n" + policy.join("\n") + "\n";
+  await Bun.write(out + "Psp.toml", toml + policyBlock);
   console.log(
     `covers: ${out.slice(ROOT.length)} (icon0 144x80, pic1 480x272, "${title}")`,
   );

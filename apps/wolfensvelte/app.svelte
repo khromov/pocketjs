@@ -5,11 +5,17 @@
   //                             |-> dying -> (lives left) get psyched | title
   //                             '-> elevator -> end -> title
   //
-  // The game itself (game/game.ts) steps once per host frame while playing;
-  // View3D draws it, Hud/BottomScreen show the vitals. The status bar sits on
-  // the 3DS bottom screen and over the view everywhere else.
+  // The game itself (game/game.ts) steps once per 60 Hz core tick while
+  // playing; View3D draws it, Hud/BottomScreen show the vitals. The status bar
+  // sits on the 3DS bottom screen and over the view everywhere else.
+  //
+  // Every count in game/ and here (PSYCHED_FRAMES, DEATH_FRAMES, speeds, the
+  // blink) is in core ticks. A host that presents below 60 Hz runs
+  // ticksPerFrame() ticks per frame and draws once at the end, so a 30 Hz
+  // PSP plays the 60 Hz trajectory at the same speed (docs/DETERMINISM.md).
   import { jump } from "@pocketjs/framework/svelte/animation";
   import { Image, Text, View } from "@pocketjs/framework/svelte/components";
+  import { ticksPerFrame } from "@pocketjs/framework/svelte/clock";
   import { BTN } from "@pocketjs/framework/svelte/input";
   import { onFrame } from "@pocketjs/framework/svelte/lifecycle";
   import type { NodeMirror } from "@pocketjs/framework/svelte/renderer";
@@ -31,6 +37,8 @@
   const sfx = new Sfx();
   const music = new Music();
   const START_LIVES = 3;
+  /** Core ticks per presented frame: 1 at 60 Hz, 2 on a 30 Hz host. */
+  const TICKS = ticksPerFrame();
 
   const titleScale = Math.min(layout.screenW / 320, layout.screenH / 200);
   const titleLeft = Math.round((layout.screenW - 320 * titleScale) / 2);
@@ -86,13 +94,16 @@
     enterPsyched();
   }
 
-  onFrame((buttons) => {
+  /** Set by a tick that moved the game; the frame then syncs the HUD once. */
+  let hudDirty = false;
+
+  /** One core tick of the screen flow and the game. Edges come from the
+   *  tick before, so a press lands on the first tick of a frame only. */
+  function tick(buttons: number): void {
     const pressed = buttons & ~prevButtons;
     prevButtons = buttons;
     phaseFrame++;
     if (phaseFrame % 30 === 0) blink = !blink;
-    sfx.pump();
-    music.pump();
 
     switch (phase) {
       case "title":
@@ -100,7 +111,6 @@
         if (pressed & BTN.START) newGame();
         break;
       case "psyched":
-        if (psychedBar) jump(psychedBar, "scaleX", Math.min(1, phaseFrame / PSYCHED_FRAMES));
         if (phaseFrame >= PSYCHED_FRAMES) {
           phase = "playing";
           phaseFrame = 0;
@@ -116,8 +126,7 @@
         game.update(reader.read(buttons));
         for (const name of game.sfx) sfx.play(name);
         game.sfx.length = 0;
-        view3d?.render(game);
-        syncHud();
+        hudDirty = true;
         if (game.phase === "dying") {
           phase = "dying";
           phaseFrame = 0;
@@ -139,13 +148,11 @@
       case "dying":
         game.update(EMPTY_INPUT);
         game.sfx.length = 0;
-        view3d?.render(game);
-        syncHud();
+        hudDirty = true;
         if (game.phase === "dead") {
           if (lives > 0) {
             lives -= 1;
             game.restart(true);
-            syncHud();
             enterPsyched();
           } else {
             phase = "title";
@@ -155,6 +162,23 @@
       case "end":
         if (pressed & BTN.START) phase = "title";
         break;
+    }
+  }
+
+  onFrame((buttons) => {
+    sfx.pump();
+    music.pump();
+    for (let t = 0; t < TICKS; t++) tick(buttons);
+
+    // Draw the state the last tick left, once per presented frame.
+    if (phase === "psyched") {
+      if (psychedBar) jump(psychedBar, "scaleX", Math.min(1, phaseFrame / PSYCHED_FRAMES));
+    } else if (phase === "playing" || phase === "dying") {
+      view3d?.render(game);
+    }
+    if (hudDirty) {
+      hudDirty = false;
+      syncHud();
     }
   });
 </script>

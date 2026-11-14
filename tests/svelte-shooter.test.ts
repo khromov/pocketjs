@@ -151,6 +151,35 @@ describe("Svelte shooter", () => {
     expect(withAudio).toBe(silent);
   });
 
+  test("a 30 Hz host keeps the 60 Hz pace", async () => {
+    // dt = ticksPerFrame(): an idle ship dies at the same virtual second.
+    const secondsUntilHit = async (hz: 30 | 60): Promise<number> => {
+      const world = await bootWorld(APP, hz);
+      for (let f = 0; f < 10 * hz; f++) {
+        if (treeHasText(world.getTree(), "LIVES 2")) return f / hz;
+      }
+      return -1;
+    };
+    const at60 = await secondsUntilHit(60);
+    expect(at60).toBeGreaterThan(0);
+    expect(await secondsUntilHit(30)).toBe(at60);
+  });
+
+  test("the theme streams without underruns at 30 Hz", async () => {
+    // Half as many pumps per second: each one must cover two ticks of audio.
+    const sink = createSimAudioSink();
+    const world = await bootWorld(APP, 30, { audio: sink.ns });
+    for (let f = 0; f < 4 * 30; f++) {
+      world.frame(f === 1 ? BTN.RTRIGGER : 0);
+      for (let t = 0; t < world.ticksPerFrame; t++) {
+        world.tick();
+        sink.tick();
+      }
+    }
+    expect(sink.consumedFrames()).toBeGreaterThan(3 * 22050);
+    expect(sink.log.some((l) => l.includes('"underrun"'))).toBe(false);
+  });
+
   test("a 400x240 host without a second screen keeps the HUD beside the field", async () => {
     const world = await bootWorld(APP, 60, undefined, undefined, { width: 400, height: 240 });
     await run(world, 4);

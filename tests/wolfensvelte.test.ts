@@ -92,4 +92,33 @@ describe("Wolfensvelte 3D", () => {
     };
     expect(await run()).toEqual(await run());
   });
+
+  test("a 30 Hz host plays the 60 Hz trajectory at the same speed", async () => {
+    // A 30 Hz world is the 60 Hz world sampled every second core tick
+    // (docs/DETERMINISM.md). Rows are [buttons, 30 Hz frames, sample?]; the
+    // 60 Hz run holds each row's buttons for twice as many frames.
+    const script: [number, number, boolean][] = [
+      [0, 1, false],
+      [BTN.START, 1, false],
+      [0, PSYCHED / 2 + 2, false],
+      [BTN.UP, 40, true],
+      [BTN.LEFT, 12, true],
+      [BTN.UP, 70, true],
+      [BTN.CIRCLE, 1, false],
+      [BTN.UP, 45, true],
+      [BTN.CROSS, 8, true],
+    ];
+    const samples = async (hz: 30 | 60): Promise<number[]> => {
+      const world = await bootWorld(APP, hz);
+      const out: number[] = [];
+      for (const [buttons, frames, sample] of script) {
+        await hold(world, buttons, frames * (hz / 30));
+        if (sample) out.push(hash(world));
+      }
+      return out;
+    };
+    const at60 = await samples(60);
+    expect(new Set(at60).size).toBeGreaterThan(1); // the view moved between samples
+    expect(await samples(30)).toEqual(at60);
+  });
 });

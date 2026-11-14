@@ -36,8 +36,44 @@ const CORE_TICKS_PER_SECOND: u32 = 60;
 // hardware. Batching cuts that to about 12 ms, but the texture-heavy GE pass
 // still completes across the third vblank. A multi-app package therefore
 // publishes an honest 20 Hz host policy and advances three fixed core ticks
-// per transaction. Standalone apps retain the 60 Hz policy.
+// per transaction.
 const MULTI_APP_SIM_HZ: u32 = 20;
+// A standalone package presents at the rate its app declares
+// (`pocketjs_sim_hz` in <app>/psp/Psp.toml; tools/psp.ts passes it as
+// POCKETJS_SIM_HZ and build.rs rejects any value that does not divide 60).
+// Empty keeps the 60 Hz core rate. An app whose frame misses the 16.7 ms
+// vblank budget on hardware declares 30: two core ticks per presented frame
+// keep its virtual time at full speed instead of halving it.
+const STANDALONE_SIM_HZ: u32 = parse_sim_hz(env!("POCKETJS_SIM_HZ"));
+const _: () = assert!(
+    STANDALONE_SIM_HZ >= 1 && CORE_TICKS_PER_SECOND % STANDALONE_SIM_HZ == 0,
+    "POCKETJS_SIM_HZ must divide the 60 Hz core rate"
+);
+
+/// Decimal digits -> rate, at compile time; empty means the core rate.
+const fn parse_sim_hz(raw: &str) -> u32 {
+    let bytes = raw.as_bytes();
+    if bytes.is_empty() {
+        return CORE_TICKS_PER_SECOND;
+    }
+    let mut hz = 0u32;
+    let mut i = 0;
+    while i < bytes.len() {
+        assert!(bytes[i].is_ascii_digit(), "POCKETJS_SIM_HZ must be decimal digits");
+        hz = hz * 10 + (bytes[i] - b'0') as u32;
+        i += 1;
+    }
+    hz
+}
+
+/// The process-wide virtual frame rate (docs/DETERMINISM.md).
+fn sim_hz() -> u32 {
+    if switch::multi() {
+        MULTI_APP_SIM_HZ
+    } else {
+        STANDALONE_SIM_HZ
+    }
+}
 
 // App bundles live in switch::APPS (build.rs generates the table; entry 0 is
 // the app POCKETJS_APP selected, multi-app builds append the registry). Each
@@ -337,7 +373,7 @@ unsafe fn bench_maybe_flush(frame_count: u32) {
     let line = alloc::format!(
         "{{\"app\":\"{}\",\"sim_hz\":{},\"frames\":{},\"window_start\":{},\"window_n\":{},\"eval_us\":{},\"boot_to_eval_begin_us\":{},\"boot_to_frame0_us\":{},\"avg_frame_interval_us\":{},\"max_frame_interval_us\":{},\"avg_js_us\":{},\"avg_jobs_us\":{},\"avg_tick_us\":{},\"avg_draw_us\":{},\"avg_render_us\":{},\"avg_work_us\":{},\"max_work_us\":{},\"avg_gpu_us\":{},\"max_gpu_us\":{},\"stack_free_bytes\":{},\"bundle_bytes\":{},\"pak_bytes\":{},\"arena_capacity_bytes\":{},\"arena_bump_bytes\":{},\"arena_tail_free_bytes\":{},\"arena_init_free_bytes\":{},\"arena_configured_bytes\":{}}}\n",
         POCKETJS_APP_NAME,
-        if switch::multi() { MULTI_APP_SIM_HZ } else { CORE_TICKS_PER_SECOND },
+        sim_hz(),
         BENCH.frames,
         start,
         n,
@@ -411,11 +447,7 @@ unsafe fn run() {
 
     // A single rate spans the whole process. In particular, switching guests
     // never changes the meaning of GLOBAL_FRAME or of a captured input tape.
-    let sim_hz = if switch::multi() {
-        MULTI_APP_SIM_HZ
-    } else {
-        CORE_TICKS_PER_SECOND
-    };
+    let sim_hz = sim_hz();
     let ticks_per_virtual_frame = CORE_TICKS_PER_SECOND / sim_hz;
     let mut last_present_vcount = sys::sceDisplayGetVcount();
 

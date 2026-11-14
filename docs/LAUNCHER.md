@@ -197,7 +197,8 @@ A multi-app PSP package therefore uses an explicit 20 Hz host policy:
 `__simHz = 20`, three fixed core ticks per virtual frame, and a three-vblank
 presentation cadence. The deck still covers 10 cards per second and ms-based
 animations retain their durations; they are sampled at 20 observations per
-second. Standalone PSP apps remain at 60 Hz. This is one process-wide
+second. Standalone PSP apps present at 60 Hz unless their `psp/Psp.toml`
+declares `pocketjs_sim_hz` (docs/DETERMINISM.md). This is one process-wide
 timebase, never a launcher-name branch or a `slowPsp` capability.
 
 ## Verification

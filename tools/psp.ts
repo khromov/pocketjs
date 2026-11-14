@@ -193,6 +193,13 @@ const xmbFragmentLabel = xmbFragment.startsWith(pspUiDir)
   ? xmbFragment.slice(pspUiDir.length)
   : xmbFragment;
 const generatedPspToml = `${nativeDir}Psp.toml`;
+// `pocketjs_sim_hz = <n>` in the fragment is PocketJS host policy, not XMB
+// metadata: the standalone presentation rate (docs/DETERMINISM.md), baked by
+// hosts/psp/build.rs from POCKETJS_SIM_HZ. It is read here and stripped from
+// the generated file, so cargo-psp never parses a key it does not own.
+// Empty (no key, no fragment) keeps the 60 Hz core rate.
+const SIM_HZ_KEY = /^[ \t]*pocketjs_sim_hz\b.*(?:\r?\n|$)/gm;
+let simHz = "";
 const generatedExisting =
   existsSync(generatedPspToml) && (await Bun.file(generatedPspToml).text()).startsWith(GENERATED_MARK);
 if (existsSync(xmbFragment)) {
@@ -204,7 +211,20 @@ if (existsSync(xmbFragment)) {
     process.exit(1);
   }
   const fragDir = `${fragmentHome}/`;
-  const rewritten = (await Bun.file(xmbFragment).text()).replace(
+  const fragment = await Bun.file(xmbFragment).text();
+  for (const line of fragment.match(SIM_HZ_KEY) ?? []) {
+    const m = /^\s*pocketjs_sim_hz\s*=\s*(\d+)\s*(?:#.*)?$/.exec(line.trimEnd());
+    const hz = m ? Number(m[1]) : NaN;
+    if (!Number.isInteger(hz) || hz < 1 || 60 % hz !== 0) {
+      console.error(
+        `PocketJS psp: ${xmbFragmentLabel}: pocketjs_sim_hz must be an integer that divides 60 ` +
+          `(1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60), got: ${line.trim()}`,
+      );
+      process.exit(1);
+    }
+    simHz = String(hz);
+  }
+  const rewritten = fragment.replace(SIM_HZ_KEY, "").replace(
     /^(\s*\w+_(?:png|pmf|at3))(\s*=\s*")(?!\/)([^"]+)(")/gm,
     (_m, key, eq, rel, close) => `${key}${eq}${fragDir}${rel}${close}`,
   );
@@ -228,6 +248,7 @@ if (existsSync(xmbFragment)) {
     `${GENERATED_MARK} from ${xmbFragmentLabel} — do not edit.\n${rewritten}`,
   );
   console.log(`PocketJS psp: XMB metadata from ${xmbFragmentLabel}`);
+  if (simHz) console.log(`PocketJS psp: presents at ${simHz} Hz (pocketjs_sim_hz in ${xmbFragmentLabel})`);
 } else if (generatedExisting) {
   unlinkSync(generatedPspToml); // a previous demo's cover must not leak into this EBOOT
 } else if (existsSync(generatedPspToml)) {
@@ -343,6 +364,8 @@ const env = {
   POCKETJS_CAP_N: process.env.POCKETJS_CAP_N ?? "",
   POCKETJS_ARENA_BYTES: process.env.POCKETJS_ARENA_BYTES ?? "",
   POCKETJS_BENCH_DUMP_FRAMES: process.env.POCKETJS_BENCH_DUMP_FRAMES ?? "",
+  // Standalone presentation rate from the app's Psp.toml fragment (above).
+  POCKETJS_SIM_HZ: simHz,
   // Multi-app embed (docs/LAUNCHER.md): empty = single-app table of one.
   POCKETJS_LAUNCHER_REGISTRY: launcherRegistry,
   // Switch-veil logo texture (docs/PLATFORM.md), baked above.
