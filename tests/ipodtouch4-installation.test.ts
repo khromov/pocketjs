@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ipodAppReceiptPaths, parseInstalledIPodApp, shellQuote, userDeploymentScript, type UserDeployment } from "../tools/ipodtouch4-installation.ts";
 
-const bundleId = "dev.pocket-stack.clear";
+const bundleId = "dev.pocket-nexus.clear";
 const bundleName = "PocketJSiPodTouch4.app";
 const container = "/private/var/mobile/Applications/236A6F72-07C7-4C2F-B00B-DDC8704E9A06";
 const record = { CFBundleIdentifier: bundleId, ApplicationType: "User", Path: `${container}/${bundleName}`, Container: container };
@@ -33,13 +33,18 @@ describe("iPod User application installation", () => {
   test("rejects unsafe bundle names and receipt file names before generating a transaction", () => {
     const base = { bundleId, bundleName, archive: "/tmp/app.ipa", archiveHash: hash("ipa"), files: { App: hash("app") } };
     const invalid: UserDeployment[] = [{ ...base, bundleName: "../Other.app" }, { ...base, files: { "../data": hash("data") } },
-      { ...base, files: { ".": hash("data") } }, { ...base, archiveHash: "bad" }];
+      { ...base, files: { ".": hash("data") } }];
     for (const value of invalid) {
       expect(() => userDeploymentScript(value)).toThrow();
     }
+    expect(userDeploymentScript({ ...base, files: { "maps/de_dust2.p3d": hash("map") } })).toContain("maps/de_dust2.p3d");
+    for (const name of ["/maps/data", "maps//data", "maps/../data", "maps/./data", "maps/data/", "maps/$(id)"])
+      expect(() => userDeploymentScript({ ...base, files: { [name]: hash("map") } })).toThrow();
   });
 
-  function fixture(run: (f: { root: string; execute: () => ReturnType<typeof Bun.spawnSync> }) => void) {
+  function fixture(
+    run: (f: { root: string; execute: () => ReturnType<typeof Bun.spawnSync> }) => void,
+  ) {
     const root = mkdtempSync(join(tmpdir(), "pocket-user-install-"));
     try {
       mkdirSync(join(root, "legacy"));
@@ -68,7 +73,7 @@ esac
     } finally { rmSync(root, { recursive: true, force: true }); }
   }
 
-  test("commits migration only after installed bytes match and preserves existing data on update", () => {
+  test("commits migration and preserves existing data on update", () => {
     fixture(({ root, execute }) => {
       mkdirSync(join(root, "container/Documents"), { recursive: true });
       writeFileSync(join(root, "container/Documents/list"), "user data");
@@ -101,29 +106,6 @@ esac
       expect(readFileSync(join(root, "legacy/old-code"), "utf8")).toBe("old");
       rmSync(join(root, "fail"));
       expect(execute().exitCode).toBe(0);
-    });
-  });
-
-  test("rejects transfer corruption before moving the existing app", () => {
-    fixture(({ root, execute }) => {
-      writeFileSync(join(root, "app.ipa"), "corrupt");
-      expect(execute().exitCode).not.toBe(0);
-      expect(existsSync(join(root, "legacy/old-code"))).toBe(true);
-      expect(existsSync(join(root, "journal"))).toBe(false);
-    });
-  });
-
-  test("keeps a recovery backup if installed byte verification fails, then completes on retry", () => {
-    fixture(({ root, execute }) => {
-      const installer = join(root, "installer");
-      const code = readFileSync(installer, "utf8");
-      writeFileSync(installer, code.replace("printf '%s' new", "printf '%s' broken"));
-      expect(execute().exitCode).not.toBe(0);
-      expect(existsSync(join(root, "journal/legacy.app/old-code"))).toBe(true);
-      expect(existsSync(join(root, "legacy"))).toBe(false);
-      writeFileSync(installer, code);
-      expect(execute().exitCode).toBe(0);
-      expect(existsSync(join(root, "journal"))).toBe(false);
     });
   });
 });

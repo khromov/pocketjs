@@ -1,13 +1,22 @@
 # Overview
 
-PocketJS is a portable application runtime that turns modern component code
-into native pixels across radically different hardware. You write **Solid**,
+PocketJS is a portable application runtime with **TypeScript application
+sources**. You write **Solid**,
 **Vue Vapor**, **Octane** or **Svelte** components; the build compiles class strings and
 font glyphs into binary tables, and a compact `no_std` Rust core renders
-flexbox layout, sub-pixel text, and native animation from them. One application
-manifest resolves into one target-specific artifact — a PSP EBOOT, a Vita VPK,
+flexbox layout, sub-pixel text, and native animation from them. One app
+contract resolves into one target-specific guest artifact — a PSP EBOOT, a Vita VPK,
 a native window, a browser bundle — and each of them drives the same logical UI
 through the same HostOps op set.
+
+**MicroTS compiles Solid TSX and Vue SFC views into Rust.** A native build
+uses either a compiled TypeScript model or an application-provided Rust model
+and calls the UI core without a guest engine. Guest builds transform the
+TypeScript sources into JavaScript bundles for their engine. The
+[TypeScript and native code guide](/docs/microts-boundaries/) describes
+the two paths. [TypeScript support](/docs/typescript-support/) compares their
+source-language rules, including the separate view and compiled model
+subsets. The framework adapters below belong to the guest path.
 
 If you know Solid, Vue, or React, you know most of PocketJS. The primitives are
 `View`, `Text`, and `Image`; state comes from the native framework package
@@ -22,18 +31,22 @@ platform-agnostic `#![no_std]` library that owns the retained node tree,
 [taffy](https://github.com/DioxusLabs/taffy) flexbox layout, the style table,
 animation tracks, baked text, and a `DrawList`. Each host compiles that core
 for its architecture and pairs it with a backend: sceGu on PSP, vita2d/GXM on
-Vita, gpui on macOS and Linux, and one deterministic software rasterizer shared
+Vita, wgpu for widgets and Pocket3D overlays, and one software rasterizer shared
 by the browser host and headless Bun.
 
 Two places in the repo decide what you can build for:
 
-- `hosts/` holds one directory per host implementation, from consoles and
-  e-readers through phones, ESP-IDF firmware, and the browser.
-- `contracts/spec/platforms.ts` registers the stock targets that
-  `pocket build --target <id>` accepts, each with its host ABI, logical
-  viewport, raster density, presentations, and capability set. A host outside
-  that registry builds through its own host profile or a resolved build plan —
-  see [Platform contracts](/docs/platform-contracts/).
+- `programs/` contains phone, music-player, reader, console and reference
+  program composition. `platforms/` provides OS and SDK drivers; `devices/`
+  provides GPU mechanisms and renderers. These programs and their host
+  contracts share the main repository.
+- `hosts/` holds the built-in host contracts accepted by
+  `pocket compile --target <id>`, one `hosts/<id>/pocket.host.json` per id,
+  with logical viewports, raster density, presentations and capabilities. A
+  program outside the repository names its own `pocket.host.json` from its
+  host config, `pocket.host.config.ts`. The compiler accepts that host
+  contract without a registry entry. See
+  [Platform contracts](/docs/platform-contracts/).
 
 Layout runs in one place — the Rust core — so a screen lays out the same
 everywhere. The browser and Bun hosts share one rasterizer, which is what makes
@@ -68,8 +81,8 @@ errors, not silent no-ops. See [Styling](/docs/styling/).
 
 Text draws from atlases baked at build time. The default faces in
 `assets/fonts/` are **Inter** for the regular and bold slots and **JetBrains
-Mono** for the mono slots; `bun tools/build.ts --font-regular=` and
-`--font-bold=` swap the proportional faces. The build scans your source for the
+Mono** for the mono slots; `bun tools/build.ts --font-regular=`,
+`--font-bold=` and `--font-mono=` swap them. The build scans your source for the
 characters and font sizes you use and rasterizes only those atlas slots —
 supersampled 8-bit coverage cells with proportional advances and a cmap.
 Drawing text composites pre-baked coverage; the bundle carries no rasterizer.
@@ -88,7 +101,8 @@ PocketJS does not include:
 - `rounded-full` on runtime-sized nodes — it requires build-time-known `w-N h-N`
   in the same class literal
 - a runtime-resizable logical viewport outside the window and widget forms;
-  console profiles bake one fixed logical size (PSP and Vita both 480×272)
+  console host contracts declare one fixed logical size (PSP and Vita both
+  480×272)
 - render-to-texture opacity groups — opacity multiplies vertex alpha down the
   subtree, which is wrong where siblings overlap
 - kerning

@@ -1,6 +1,16 @@
+import { resolveWorkerChannels, WORKER_LIMITS, workerCapabilities, type WorkerResourceKind } from "../../../contracts/spec/worker.ts";
 import { isHostExtension, type HostExtension } from "./host-extension.ts";
+import { hashPocketProfile } from "../profile.ts";
+import { compiledProfile, profileChannels } from "../../../contracts/spec/profile.ts";
+import { profileDocument } from "../../../hosts/contract.ts";
 import { DYNAMIC_FORMS, PACKAGE_ROLES, TARGET_FORMS } from "../../../contracts/spec/platforms.ts";
-import type { PocketManifestV2 } from "../../../contracts/spec/pocket-manifest.ts";
+import { deriveModality, modalityMisses } from "../../../contracts/spec/modality.ts";
+import type {
+  FixedViewportSpec,
+  ManifestViewport,
+  PocketManifestV2,
+  PresentationSpec,
+} from "../../../contracts/spec/pocket-manifest.ts";
 import {
   POCKET_PLATFORM_CONTRACTS,
   type FixedDisplayProfile,
@@ -15,12 +25,19 @@ import {
   type ResolvedBuildPlanContent,
 } from "./plan.ts";
 import { validatePocketManifest, type ContractDiagnostic } from "./validate.ts";
+import { POCKET_BINDING_GENERATION } from "../../../contracts/spec/binding-generation.ts";
+import { appletManifestDiagnostics } from "../../../contracts/spec/applet.ts";
+import { cadenceFor } from "../../../contracts/spec/admission.ts";
 
+/** The package rate when the manifest states none (`app.tickHz`). */
+export const DEFAULT_TICK_HZ = 60;
 const AUXILIARY_DISPLAY = "display.auxiliary";
 const AUXILIARY_TOUCH = "input.touch.auxiliary";
 
 export interface ResolveBuildRequest {
   readonly target: string;
+  /** Artifact selected by the caller. Omitted retains JavaScript guest plans. */
+  readonly executionClass?: "guest" | "aot";
   /** Defaults to an ordinary application. System resolution assigns the
    *  System UI role before capability admission. */
   readonly role?: "application" | "systemUI";
@@ -121,10 +138,32 @@ function resolveFixedDisplay(
     : null;
 }
 
+/** An adaptive auxiliary surface takes the first size the target offers
+ *  inside its range, presented natively. */
+function resolveAdaptiveDisplay(
+  requested: { min: Viewport; max: Viewport },
+  provided: FixedDisplayProfile,
+  path: string,
+  diagnostics?: ContractDiagnostic[],
+): ReturnType<typeof resolveFixedDisplay> {
+  const logical = provided.logicalViewports.find((size) => within(size, requested.min, requested.max));
+  if (!logical) {
+    diagnostics?.push({
+      code: "surface.logicalUnsupported",
+      path,
+      message:
+        `target offers no auxiliary logical viewport from ${requested.min[0]}x${requested.min[1]} ` +
+        `through ${requested.max[0]}x${requested.max[1]}`,
+    });
+    return null;
+  }
+  return resolveFixedDisplay({ logical, presentation: "native" }, provided, path, diagnostics);
+}
+
 /** The app's viewport intent, normalized: the bare `{logical, presentation}`
  *  spelling is shorthand for `{fixed: ...}`. */
 function normalizeViewport(viewport: PocketManifestV2["app"]["viewport"]): {
-  fixed?: { logical: Viewport; presentation: PresentationMode };
+  fixed?: FixedViewportSpec;
   dynamic?: { default: Viewport; min?: Viewport; max?: Viewport };
 } {
   if ("logical" in viewport) {
@@ -136,6 +175,22 @@ function normalizeViewport(viewport: PocketManifestV2["app"]["viewport"]): {
 const within = (v: Viewport, min: Viewport, max: Viewport): boolean =>
   v[0] >= min[0] && v[1] >= min[1] && v[0] <= max[0] && v[1] <= max[1];
 
+/** The sizes a fixed declaration offers a target, in preference order: one
+ *  size, the listed sizes, or the target's own sizes inside the range. */
+function fixedCandidates(logical: FixedViewportSpec["logical"], targetSizes: readonly Viewport[]): Viewport[] {
+  if ("min" in logical) return targetSizes.filter(size => within(size, logical.min, logical.max));
+  return isViewport(logical) ? [logical] : [...logical];
+}
+
+function isViewport(value: FixedViewportSpec["logical"]): value is Viewport {
+  return Array.isArray(value) && typeof value[0] === "number";
+}
+
+function describeFixed(logical: FixedViewportSpec["logical"]): string {
+  if ("min" in logical) return `${logical.min[0]}x${logical.min[1]} through ${logical.max[0]}x${logical.max[1]}`;
+  return (isViewport(logical) ? [logical] : logical).map(size => `${size[0]}x${size[1]}`).join(", ");
+}
+
 /**
  * Pick and validate the viewport variant the target's FORM calls for.
  * Window/widget forms take the app's `dynamic` variant (or its `fixed` one
@@ -144,7 +199,8 @@ const within = (v: Viewport, min: Viewport, max: Viewport): boolean =>
  * pushing diagnostics.
  */
 function resolveViewport(
-  manifest: PocketManifestV2,
+  declared: ManifestViewport,
+  viewportPath: string,
   profile: TargetProfile,
   diagnostics: ContractDiagnostic[],
 ): {
@@ -153,7 +209,7 @@ function resolveViewport(
   physical: Viewport;
   policy: "fixed" | "dynamic";
 } | null {
-  const viewport = normalizeViewport(manifest.app.viewport);
+  const viewport = normalizeViewport(declared);
   const { physicalViewport, logicalViewports, dynamicViewport, presentations, rasterDensity } =
     profile.display;
   const dynamicTarget = DYNAMIC_FORMS.includes(profile.form);
@@ -169,7 +225,7 @@ function resolveViewport(
       if (!within(size, range.min, range.max)) {
         diagnostics.push({
           code: "viewport.logicalUnsupported",
-          path: "/app/viewport/dynamic/default",
+          path: `${viewportPath}/dynamic/default`,
           message: `target admits ${range.min[0]}x${range.min[1]} through ${range.max[0]}x${range.max[1]}, not ${size[0]}x${size[1]}`,
         });
         return null;
@@ -185,17 +241,18 @@ function resolveViewport(
       if (!range.acceptsFixed) {
         diagnostics.push({
           code: "viewport.fixedUnhosted",
-          path: "/app/viewport",
+          path: viewportPath,
           message: `${profile.form}-form target does not host fixed-viewport apps — declare a dynamic viewport variant`,
         });
         return null;
       }
-      const size = viewport.fixed.logical;
-      if (!within(size, range.min, range.max)) {
+      const declaredFixed = viewport.fixed.logical;
+      const size = fixedCandidates(declaredFixed, logicalViewports).find(candidate => within(candidate, range.min, range.max));
+      if (!size) {
         diagnostics.push({
           code: "viewport.logicalUnsupported",
-          path: "/app/viewport/fixed/logical",
-          message: `target admits ${range.min[0]}x${range.min[1]} through ${range.max[0]}x${range.max[1]}, not ${size[0]}x${size[1]}`,
+          path: `${viewportPath}/fixed/logical`,
+          message: `target admits ${range.min[0]}x${range.min[1]} through ${range.max[0]}x${range.max[1]}, not ${describeFixed(declaredFixed)}`,
         });
         return null;
       }
@@ -209,7 +266,7 @@ function resolveViewport(
     }
     diagnostics.push({
       code: "viewport.dynamicRequired",
-      path: "/app/viewport",
+      path: viewportPath,
       message: "target has a dynamic window — declare a dynamic viewport variant",
     });
     return null;
@@ -218,21 +275,29 @@ function resolveViewport(
   if (!viewport.fixed) {
     diagnostics.push({
       code: "viewport.fixedRequired",
-      path: "/app/viewport",
+      path: viewportPath,
       message: "target has a fixed screen — declare a fixed viewport variant",
     });
     return null;
   }
-  const { logical, presentation } = viewport.fixed;
-  const fixedPath = "logical" in manifest.app.viewport ? "/app/viewport" : "/app/viewport/fixed";
+  const { presentation } = viewport.fixed;
+  const declaredFixed = viewport.fixed.logical;
+  const fixedPath = "logical" in declared ? viewportPath : `${viewportPath}/fixed`;
   let ok = true;
-  if (!logicalViewports.some((supported) => sameViewport(supported, logical))) {
+  const candidates = fixedCandidates(declaredFixed, logicalViewports);
+  let logical = candidates.find(candidate => logicalViewports.some(supported => sameViewport(supported, candidate)));
+  if (!logical) {
     diagnostics.push({
       code: "viewport.logicalUnsupported",
       path: `${fixedPath}/logical`,
-      message: `target does not support logical viewport ${logical[0]}x${logical[1]}`,
+      message: isViewport(declaredFixed)
+        ? `target does not support logical viewport ${declaredFixed[0]}x${declaredFixed[1]}`
+        : `target supports none of the logical viewports ${describeFixed(declaredFixed)}`,
     });
     ok = false;
+    // The remaining checks report against the first declared size.
+    logical = candidates[0];
+    if (!logical) return null;
   }
   if (!presentations.includes(presentation)) {
     diagnostics.push({
@@ -298,6 +363,14 @@ export function validatePlatformContractRegistry(
   });
 
   for (const [targetId, target] of Object.entries(registry.targets)) {
+    if (target.hostAbi !== POCKET_BINDING_GENERATION) {
+      diagnostics.push({ code: "registry.bindingGeneration", path: `/targets/${targetId}/hostAbi`,
+        message: `target must use binding generation ${POCKET_BINDING_GENERATION}` });
+    }
+    if (!target.cadences.length || target.cadences.some(cadence => !Number.isInteger(cadence) || cadence < 1 || cadence > 240)) {
+      diagnostics.push({ code: "registry.invalidCadences", path: `/targets/${targetId}/cadences`,
+        message: "target cadences must be integers from 1 through 240" });
+    }
     if (
       !Number.isInteger(target.display.rasterDensity) ||
       target.display.rasterDensity < 1 ||
@@ -419,6 +492,14 @@ export function resolveBuildPlan(
     diagnostics.push({ code: "hostExtension.invalid", path: "/hostExtension",
       message: "host extension must carry a versioned, content-verified JSON payload" });
   }
+  if (typeof manifest.app.theme === "string") {
+    diagnostics.push({
+      code: "app.themeUnresolved",
+      path: "/app/theme",
+      message: `app.theme names the module ${JSON.stringify(manifest.app.theme)}; readPocketManifest loads it before resolution`,
+    });
+    return { ok: false, diagnostics };
+  }
   const profile = registry.targets[request.target];
   if (!profile) {
     diagnostics.push({
@@ -429,19 +510,55 @@ export function resolveBuildPlan(
     return { ok: false, diagnostics };
   }
 
-  // This resolver only produces guest-class plans. AOT-class packages are
-  // admitted at compile time by their compiler family (see vapor/BOARDS.md);
-  // a manifest that ships no guest artifact has nothing for us to build.
-  const executionClasses = manifest.execution?.classes ?? ["guest"];
-  if (!executionClasses.includes("guest")) {
-    diagnostics.push({
-      code: "execution.guestExcluded",
-      path: "/execution/classes",
-      message: "manifest declares no guest execution class; this resolver only builds guest plans",
-    });
+  const executionClass = request.executionClass ?? "guest";
+  if (executionClass === "aot" && manifest.app.aot !== true) {
+    diagnostics.push({ code: "execution.aotDisabled", path: "/app/aot", message: "AOT compilation requires app.aot to be true" });
   }
 
-  const resolvedViewport = resolveViewport(manifest, profile, diagnostics);
+  // The device's modality selects the presentation; the first declared
+  // presentation whose requirement the modality meets is the one this build
+  // compiles. None matching means the baseline `app.entry`.
+  const modality = deriveModality(profile);
+  const presentations = manifest.app.presentations ?? [];
+  const presentationIds = new Map<string, number>();
+  presentations.forEach((candidate, index) => {
+    const previous = presentationIds.get(candidate.id);
+    if (previous !== undefined) {
+      diagnostics.push({
+        code: "presentation.duplicateId",
+        path: `/app/presentations/${index}/id`,
+        message: `presentation id ${JSON.stringify(candidate.id)} was already declared at /app/presentations/${previous}`,
+      });
+      return;
+    }
+    presentationIds.set(candidate.id, index);
+  });
+  const chosenIndex = presentations.findIndex(
+    (candidate) => modalityMisses(modality, candidate.modality).length === 0,
+  );
+  const chosen: PresentationSpec | undefined = chosenIndex >= 0 ? presentations[chosenIndex] : undefined;
+  const presentationPath = chosen ? `/app/presentations/${chosenIndex}` : "/app";
+  if (!chosen && manifest.app.modality) {
+    const misses = modalityMisses(modality, manifest.app.modality);
+    if (misses.length > 0) {
+      diagnostics.push({
+        code: "modality.unsupported",
+        path: "/app/modality",
+        message: `target ${request.target} does not meet the application's modality (${misses.join(", ")}) and no presentation matched`,
+      });
+      return { ok: false, diagnostics };
+    }
+  }
+  const presentation = {
+    id: chosen?.id ?? "default",
+    entry: chosen?.entry ?? manifest.app.entry,
+  };
+
+  const declaredViewport = chosen?.viewport ?? manifest.app.viewport;
+  const viewportPath = chosen?.viewport ? `${presentationPath}/viewport` : "/app/viewport";
+  const resolvedViewport = resolveViewport(declaredViewport, viewportPath, profile, diagnostics);
+  const declaredSurfaces = chosen?.surfaces ?? manifest.app.surfaces;
+  const surfacesPath = chosen?.surfaces ? `${presentationPath}/surfaces` : "/app/surfaces";
 
   const known = new Set<string>(registry.capabilities);
   const role = request.role ?? "application";
@@ -452,20 +569,38 @@ export function resolveBuildPlan(
   const seen = new Map<string, string>();
   const featureAvailability = new Map<string, boolean>();
 
-  for (const [kind, capabilities] of [
-    ["requires", manifest.engine.capabilities.requires],
-    ["enhances", manifest.engine.capabilities.enhances ?? []],
-  ] as const) {
+  // App-level declarations first, then the chosen presentation's additions.
+  // A presentation `requires` may promote an app-level `enhances`; every
+  // other repeat is a duplicate the author should remove.
+  const appEnhances = new Map<string, string>();
+  (manifest.engine.capabilities.enhances ?? []).forEach((capability, index) => {
+    appEnhances.set(capability, capabilityPath("enhances", index));
+  });
+  const declarations: readonly (readonly ["requires" | "enhances", readonly string[], (index: number) => string])[] = [
+    ["requires", manifest.engine.capabilities.requires, (index) => capabilityPath("requires", index)],
+    ["enhances", manifest.engine.capabilities.enhances ?? [], (index) => capabilityPath("enhances", index)],
+    ...(chosen
+      ? ([
+          ["requires", chosen.capabilities?.requires ?? [], (index: number) => `${presentationPath}/capabilities/requires/${index}`],
+          ["enhances", chosen.capabilities?.enhances ?? [], (index: number) => `${presentationPath}/capabilities/enhances/${index}`],
+        ] as const)
+      : []),
+  ];
+
+  for (const [kind, capabilities, pathOf] of declarations) {
     capabilities.forEach((capability, index) => {
-      const path = capabilityPath(kind, index);
+      const path = pathOf(index);
       const previous = seen.get(capability);
       if (previous) {
-        diagnostics.push({
-          code: "capability.duplicate",
-          path,
-          message: `capability was already declared at ${previous}`,
-        });
-        return;
+        const promotes = kind === "requires" && path.startsWith("/app/presentations/") && appEnhances.get(capability) === previous;
+        if (!promotes) {
+          diagnostics.push({
+            code: "capability.duplicate",
+            path,
+            message: `capability was already declared at ${previous}`,
+          });
+          return;
+        }
       }
       seen.set(capability, path);
 
@@ -492,15 +627,47 @@ export function resolveBuildPlan(
     });
   }
 
-  const requires = new Set(manifest.engine.capabilities.requires);
-  const enhances = new Set(manifest.engine.capabilities.enhances ?? []);
+  // A worker declaration requires the second runtime and each node kind's
+  // capability; the manifest does not list them again.
+  const worker = manifest.domains?.worker;
+  const workerRequires = worker ? workerCapabilities(worker) : [];
+  for (const capability of workerRequires) {
+    if (!provided.has(capability)) {
+      diagnostics.push({
+        code: "capability.unavailable",
+        path: "/domains/worker",
+        message: `target ${request.target} does not provide ${capability}, which the worker declaration requires`,
+      });
+      continue;
+    }
+    featureAvailability.set(capability, true);
+  }
+
+  const requires = new Set([
+    ...manifest.engine.capabilities.requires,
+    ...(chosen?.capabilities?.requires ?? []),
+    ...workerRequires,
+  ]);
+  const enhances = new Set(
+    [...(manifest.engine.capabilities.enhances ?? []), ...(chosen?.capabilities?.enhances ?? [])].filter(
+      (capability) => !requires.has(capability),
+    ),
+  );
+  if (requires.has("text.glyphs.streamed") && !requires.has("io.offload") ||
+      enhances.has("text.glyphs.streamed") && !requires.has("io.offload") && !enhances.has("io.offload")) {
+    diagnostics.push({code:"capability.offloadDependency",path:"/engine/capabilities",message:"text.glyphs.streamed requires a matching io.offload declaration"});
+  }
+  if (requires.has("text.layout.offload") && !requires.has("io.offload") ||
+      enhances.has("text.layout.offload") && !requires.has("io.offload") && !enhances.has("io.offload")) {
+    diagnostics.push({code:"capability.offloadDependency",path:"/engine/capabilities",message:"text.layout.offload requires a matching io.offload declaration"});
+  }
   const auxiliaryDeclared = requires.has(AUXILIARY_DISPLAY) || enhances.has(AUXILIARY_DISPLAY);
   const auxiliaryTouchDeclared = requires.has(AUXILIARY_TOUCH) || enhances.has(AUXILIARY_TOUCH);
-  if (Boolean(manifest.app.surfaces?.auxiliary) !== auxiliaryDeclared) {
+  if (Boolean(declaredSurfaces?.auxiliary) !== auxiliaryDeclared) {
     diagnostics.push({
       code: "surface.auxiliaryDeclarationMismatch",
-      path: "/app/surfaces",
-      message: "app.surfaces.auxiliary and the display.auxiliary capability must be declared together",
+      path: surfacesPath,
+      message: "surfaces.auxiliary and the display.auxiliary capability must be declared together",
     });
   }
   if (auxiliaryTouchDeclared && !auxiliaryDeclared) {
@@ -518,20 +685,36 @@ export function resolveBuildPlan(
     });
   }
 
+  if (declaredSurfaces && !declaredSurfaces.auxiliary.fixed === !declaredSurfaces.auxiliary.adaptive) {
+    diagnostics.push({
+      code: "surface.auxiliaryPolicy",
+      path: `${surfacesPath}/auxiliary`,
+      message: "surfaces.auxiliary declares exactly one of fixed and adaptive",
+    });
+  }
   let resolvedAuxiliary:
     | NonNullable<ResolvedBuildPlanContent["surfaces"]>["auxiliary"]
     | undefined;
   if (
     featureAvailability.get(AUXILIARY_DISPLAY) === true &&
-    manifest.app.surfaces?.auxiliary &&
+    declaredSurfaces?.auxiliary &&
     profile.display.auxiliary
   ) {
-    resolvedAuxiliary = resolveFixedDisplay(
-      manifest.app.surfaces.auxiliary.fixed,
-      profile.display.auxiliary,
-      "/app/surfaces/auxiliary/fixed",
-      requires.has(AUXILIARY_DISPLAY) ? diagnostics : undefined,
-    ) ?? undefined;
+    const auxiliaryDiagnostics = requires.has(AUXILIARY_DISPLAY) ? diagnostics : undefined;
+    const { fixed, adaptive } = declaredSurfaces.auxiliary;
+    resolvedAuxiliary = (adaptive
+      ? resolveAdaptiveDisplay(
+          adaptive,
+          profile.display.auxiliary,
+          `${surfacesPath}/auxiliary/adaptive`,
+          auxiliaryDiagnostics,
+        )
+      : resolveFixedDisplay(
+          fixed!,
+          profile.display.auxiliary,
+          `${surfacesPath}/auxiliary/fixed`,
+          auxiliaryDiagnostics,
+        )) ?? undefined;
     if (!resolvedAuxiliary) {
       featureAvailability.set(AUXILIARY_DISPLAY, false);
       featureAvailability.set(AUXILIARY_TOUCH, false);
@@ -543,12 +726,72 @@ export function resolveBuildPlan(
   // would otherwise smuggle an invalid name past the schema and fail much
   // later, inside a backend, blaming a plan the resolver itself produced.
   const OUTPUT_NAME = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
-  const output = manifest.app.output ?? manifest.app.entry.split("/").pop()!.replace(/\.tsx?$/, "");
+  const explicitOutput = chosen?.output ?? manifest.app.output;
+  const output = explicitOutput ?? presentation.entry.split("/").pop()!.replace(/\.tsx?$/, "");
   if (!OUTPUT_NAME.test(output)) {
     diagnostics.push({
       code: "app.outputUnderivable",
-      path: manifest.app.output !== undefined ? "/app/output" : "/app/entry",
+      path: chosen?.output !== undefined
+        ? `${presentationPath}/output`
+        : manifest.app.output !== undefined
+          ? "/app/output"
+          : `${presentationPath}/entry`,
       message: `derived output ${JSON.stringify(output)} is not a valid artifact name — set app.output explicitly`,
+    });
+  }
+
+  // A Pocket Applet (contracts/spec/applet.ts) is held to the applet rules
+  // on every target, before a plan exists.
+  diagnostics.push(...appletManifestDiagnostics(manifest));
+
+  if (requires.has("runtime.worker") && !worker) diagnostics.push({ code: "worker.entry", path: "/domains/worker", message: "runtime.worker requires a worker entry" });
+  if (worker) {
+    if (manifest.app.aot) diagnostics.push({ code: "worker.execution", path: "/domains/worker", message: "Worker entries require the guest execution class" });
+    for (const field of ["nodes", "channels"] as const) {
+      const names = new Set<string>();
+      for (const [index, value] of (worker[field] ?? []).entries()) {
+        if (names.has(value.name)) diagnostics.push({ code: "worker.duplicate", path: `/domains/worker/${field}/${index}/name`, message: `Duplicate worker ${field} name: ${value.name}` });
+        names.add(value.name);
+      }
+    }
+    // Counts are host facts: the profile's worker table bounds each node
+    // kind, and the worker protocol bounds resources and channels.
+    const table = profile.source?.worker?.nodes;
+    const counts = new Map<WorkerResourceKind, number>();
+    for (const node of worker.nodes) counts.set(node.kind, (counts.get(node.kind) ?? 0) + 1);
+    for (const [kind, count] of table ? counts : []) {
+      const limit = table![kind] ?? 0;
+      if (count > limit) {
+        diagnostics.push({ code: "worker.nodeLimit", path: "/domains/worker/nodes", message: `target ${request.target} hosts at most ${limit} ${kind} worker node${limit === 1 ? "" : "s"}; the manifest declares ${count}` });
+      }
+    }
+    if (worker.nodes.length > WORKER_LIMITS.resources) {
+      diagnostics.push({ code: "worker.nodeLimit", path: "/domains/worker/nodes", message: `a worker owns at most ${WORKER_LIMITS.resources} nodes; the manifest declares ${worker.nodes.length}` });
+    }
+    if ((worker.channels ?? []).length > WORKER_LIMITS.channels) {
+      diagnostics.push({ code: "worker.channelLimit", path: "/domains/worker/channels", message: `a worker has at most ${WORKER_LIMITS.channels} channels; the manifest declares ${worker.channels!.length}` });
+    }
+    // A channel's sizes are host facts too: a stated size fits the host's
+    // channel, and "host" takes it (resolveWorkerChannels below).
+    const channelTable = profileChannels(profile.source ?? {});
+    for (const [index, channel] of (worker.channels ?? []).entries()) {
+      for (const field of ["recordBytes", "capacity"] as const) {
+        const size = channel[field];
+        if (size !== "host" && size > channelTable[field]) {
+          diagnostics.push({ code: "worker.channelSize", path: `/domains/worker/channels/${index}/${field}`, message: `target ${request.target} holds channels of at most ${channelTable[field]} ${field === "recordBytes" ? "bytes a record" : "records"}; channel ${channel.name} declares ${size}` });
+        }
+      }
+    }
+  }
+
+  // The package rate is the application's; the target must present it at a
+  // cadence the rate is a whole multiple of.
+  const tickHz = manifest.app.tickHz ?? DEFAULT_TICK_HZ;
+  if (cadenceFor(tickHz, profile.cadences) === null) {
+    diagnostics.push({
+      code: "app.tickHz",
+      path: "/app/tickHz",
+      message: `app.tickHz ${tickHz} is not a whole multiple of a ${request.target} cadence (${profile.cadences.join(", ")} Hz)`,
     });
   }
 
@@ -562,15 +805,25 @@ export function resolveBuildPlan(
     [...featureAvailability.entries()].sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0)),
   );
 
+  // The plan records the profile with the rate the package is compiled at.
+  const document = profileDocument(request.target, profile);
   const content: ResolvedBuildPlanContent = {
+    profile: { ...compiledProfile(document), tickHz },
+    profileHash: hashPocketProfile(document),
     app: {
       id: manifest.id,
       title: manifest.title,
       version: manifest.version,
-      entry: manifest.app.entry,
+      entry: presentation.entry,
       output,
       framework: manifest.app.framework,
+      ...(manifest.app.theme !== undefined ? { theme: manifest.app.theme } : {}),
+      ...(manifest.app.aot !== undefined ? { aot: manifest.app.aot } : {}),
+      ...(manifest.app.model !== undefined ? { model: manifest.app.model } : {}),
+      ...(manifest.app.recursionLimit !== undefined ? { recursionLimit: manifest.app.recursionLimit } : {}),
     },
+    ...(worker ? { domains: { worker: resolveWorkerChannels(worker, profileChannels(profile.source ?? {})) } } : {}),
+    presentation,
     target: {
       id: request.target,
       hostAbi: profile.hostAbi,
@@ -583,9 +836,12 @@ export function resolveBuildPlan(
       policy: resolvedViewport.policy,
     },
     ...(resolvedAuxiliary ? { surfaces: { auxiliary: resolvedAuxiliary } } : {}),
+    modality,
+    animation: profile.display.animation,
     features,
     companions: manifest.app.companions ?? [],
     ...(request.hostExtension ? { hostExtension: request.hostExtension } : {}),
+    ...(manifest.applet ? { applet: manifest.applet } : {}),
   };
   return { ok: true, plan: finalizeBuildPlan(content) };
 }

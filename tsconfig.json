@@ -19,7 +19,6 @@
     "paths": {
       "@pocketjs/framework": ["./framework/src/index.ts"],
       "@pocketjs/framework/animation": ["./framework/src/animation.ts"],
-      "@pocketjs/framework/config": ["./framework/src/config.ts"],
       "@pocketjs/framework/components": ["./framework/src/components.ts"],
       "@pocketjs/framework/gesture": ["./framework/src/gesture.ts"],
       "@pocketjs/framework/input": ["./framework/src/input-api.ts"],
@@ -30,6 +29,7 @@
       "@pocketjs/framework/prelude": ["./framework/src/prelude.ts"],
       "@pocketjs/framework/renderer": ["./framework/src/renderer.ts"],
       "@pocketjs/framework/solid": ["./framework/src/index.ts"],
+      "@pocketjs/framework/solid/std": ["./framework/src/std-microts.ts"],
       "@pocketjs/framework/solid/components": ["./framework/src/components.ts"],
       "@pocketjs/framework/solid/lifecycle": ["./framework/src/lifecycle.ts"],
       "@pocketjs/framework/solid/renderer": ["./framework/src/renderer-solid.ts"],
@@ -37,8 +37,9 @@
       "@pocketjs/framework/vue-vapor": ["./framework/src/index-vue-vapor.ts"],
       "@pocketjs/framework/vue-vapor/animation": ["./framework/src/animation.ts"],
       "@pocketjs/framework/vue-vapor/components": ["./framework/src/components-vue-vapor.ts"],
+      "@pocketjs/framework/vue-vapor/std": ["./framework/src/std-microts.ts"],
       "@pocketjs/framework/vue-vapor/gesture": ["./framework/src/gesture.vue-vapor.ts"],
-      "@pocketjs/framework/vue-vapor/input": ["./framework/src/input-api.ts"],
+      "@pocketjs/framework/vue-vapor/input": ["./framework/src/input-api-vue-vapor.ts"],
       "@pocketjs/framework/vue-vapor/kinetics": ["./framework/src/kinetics.vue-vapor.ts"],
       "@pocketjs/framework/vue-vapor/lifecycle": ["./framework/src/lifecycle-vue-vapor.ts"],
       "@pocketjs/framework/vue-vapor/renderer": ["./framework/src/renderer-vue-vapor.ts"],
@@ -59,5 +60,5 @@
       "@pocketjs/framework/svelte/renderer": ["./framework/src/renderer-svelte.ts"]
     }
   },
-  "include": ["framework", "apps", "tests", "contracts", "hosts/web"]
+  "include": ["framework", "apps", "tests", "contracts", "programs/web", "platforms/web", "programs/sim", "platforms/sim"]
 }

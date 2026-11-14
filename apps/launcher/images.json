@@ -2,6 +2,12 @@
   "covers/launcher-bg.png": {
     "linear": true
   },
+  "covers/cover-clear-main.png": {
+    "linear": true
+  },
+  "covers/refl-clear-main.png": {
+    "linear": true
+  },
   "covers/cover-note-main.png": {
     "linear": true
   },
@@ -56,18 +62,6 @@
   "covers/refl-hero-main.png": {
     "linear": true
   },
-  "covers/cover-hero-vue-sfc-main.png": {
-    "linear": true
-  },
-  "covers/refl-hero-vue-sfc-main.png": {
-    "linear": true
-  },
-  "covers/cover-hero-vue-vapor-main.png": {
-    "linear": true
-  },
-  "covers/refl-hero-vue-vapor-main.png": {
-    "linear": true
-  },
   "covers/cover-stats-main.png": {
     "linear": true
   },
@@ -98,22 +92,10 @@
   "covers/refl-settings-main.png": {
     "linear": true
   },
-  "covers/cover-svelte-lab-main.png": {
+  "covers/cover-solid-aot-lab-main.png": {
     "linear": true
   },
-  "covers/refl-svelte-lab-main.png": {
-    "linear": true
-  },
-  "covers/cover-svelte-shooter-main.png": {
-    "linear": true
-  },
-  "covers/refl-svelte-shooter-main.png": {
-    "linear": true
-  },
-  "covers/cover-svelte-snake-main.png": {
-    "linear": true
-  },
-  "covers/refl-svelte-snake-main.png": {
+  "covers/refl-solid-aot-lab-main.png": {
     "linear": true
   },
   "covers/cover-im-main.png": {
@@ -122,22 +104,28 @@
   "covers/refl-im-main.png": {
     "linear": true
   },
+  "covers/cover-text-cjk-main.png": {
+    "linear": true
+  },
+  "covers/refl-text-cjk-main.png": {
+    "linear": true
+  },
   "covers/cover-vue-sfc-lab-main.png": {
     "linear": true
   },
   "covers/refl-vue-sfc-lab-main.png": {
     "linear": true
   },
-  "covers/cover-wolfensvelte-main.png": {
-    "linear": true
-  },
-  "covers/refl-wolfensvelte-main.png": {
-    "linear": true
-  },
   "covers/cover-iphone16-demo-main.png": {
     "linear": true
   },
   "covers/refl-iphone16-demo-main.png": {
+    "linear": true
+  },
+  "covers/cover-text-offload-main.png": {
+    "linear": true
+  },
+  "covers/refl-text-offload-main.png": {
     "linear": true
   },
   "covers/cover-zoomlab-main.png": {

@@ -17,6 +17,7 @@ export const DOC_NAV: DocSection[] = [
       { slug: "getting-started", title: "Getting started" },
       { slug: "frameworks", title: "Frameworks" },
       { slug: "architecture", title: "Architecture" },
+      { slug: "applets", title: "Pocket Applets" },
     ],
   },
   {
@@ -26,6 +27,7 @@ export const DOC_NAV: DocSection[] = [
       { slug: "styling", title: "Styling" },
       { slug: "reactivity", title: "Reactivity" },
       { slug: "animation", title: "Animation" },
+      { slug: "physics", title: "Physics" },
       { slug: "input-focus", title: "Input & focus" },
       { slug: "touch-gestures", title: "Touch & gestures" },
       { slug: "app-shell", title: "App shell & overlays" },
@@ -33,9 +35,23 @@ export const DOC_NAV: DocSection[] = [
     ],
   },
   {
+    title: "MicroTS",
+    items: [
+      { slug: "microts", title: "Build a native Vue app" },
+      { slug: "microts-components", title: "Components and state" },
+      { slug: "microts-reference", title: "API and commands" },
+      { slug: "microts-solid", title: "Solid TSX to Rust" },
+      { slug: "microts-model", title: "TypeScript models to Rust" },
+      { slug: "microts-boundaries", title: "TypeScript and native code" },
+    ],
+  },
+  {
     title: "Reference",
     items: [
+      { slug: "typescript-support", title: "TypeScript support" },
       { slug: "api", title: "API reference" },
+      { slug: "cli", title: "CLI" },
+      { slug: "app-contract", title: "App contract" },
       { slug: "build-pipeline", title: "Build pipeline" },
       { slug: "native-contract", title: "Native contract" },
       { slug: "platform-contracts", title: "Platform contracts" },
@@ -55,6 +71,14 @@ export interface BlogPost {
 }
 
 export const BLOG_POSTS: BlogPost[] = [
+  {
+    slug: "introducing-pocket3d",
+    title: "Introducing Pocket3D",
+    date: "2026-10-07",
+    description:
+      "A hardware-native 3D stack for portable interactive software. How a city becomes different programs for the PSP, Nintendo 3DS and PS Vita, why each experience owns its compiler and renderer, and how Pocket Studio brings the games to the people who play and create them.",
+    author: { name: 'Yifeng "Evan" Wang', url: "https://github.com/doodlewind" },
+  },
   {
     slug: "blackberry-classic",
     title:
@@ -129,14 +153,6 @@ export const BLOG_POSTS: BlogPost[] = [
     author: { name: 'Yifeng "Evan" Wang', url: "https://github.com/doodlewind" },
   },
   {
-    slug: "pocket-vapor",
-    title: "Pocket Vapor: Vue, Compiled All the Way Down",
-    date: "2026-07-23",
-    description:
-      "A real Vue component (ref, computed, filter/map/slice, JSX, Tailwind classes) compiled to a 9.1 KB Game Boy Advance ROM, a 32 KB Game Boy cartridge, and a 40 KB NES cartridge. No JS engine, no GC, no malloc. The trick is one observation: a reactive UI program is far more static than the machinery we run it on. Refs become dirty bits, dependency edges become ROM bitmasks, filter/slice become index views over a struct pool, and Vue's own runtime becomes the test oracle that keeps every claim honest, cell by cell, 7,264 assertions per commit. First public writeup of an experiment; includes the part where the differential suite found a bug in Vue's release candidate.",
-    author: { name: 'Yifeng "Evan" Wang', url: "https://github.com/doodlewind" },
-  },
-  {
     slug: "pocket-character",
     title: "Pocket Character: a Desktop Digital Human in One Native Process",
     date: "2026-07-19",
@@ -157,7 +173,7 @@ export const BLOG_POSTS: BlogPost[] = [
     title: "Twice the Pixels, Zero Forks: PocketJS on PS Vita",
     date: "2026-07-13",
     description:
-      "PocketJS 0.4.0's headline: the same apps, unchanged, as native PS Vita bubbles. The Vita port is now verified on real hardware: the 480×272 logical world renders at a true 960×544 through a target-owned raster density, while a pocket.json contract system makes ad hoc platform hacks fail the build. Plus front touch as deterministic input, 44 byte-exact Vita goldens, and release VPKs installed and run on a physical Vita.",
+      "PocketJS 0.4.0's headline: the same apps, unchanged, as native PS Vita bubbles. The Vita port is now verified on real hardware: the 480×272 logical world renders at a true 960×544 through a target-owned raster density, while a pocket.app.json contract system makes ad hoc platform hacks fail the build. Plus front touch as deterministic input, 44 byte-exact Vita goldens, and release VPKs installed and run on a physical Vita.",
     author: { name: 'Yifeng "Evan" Wang', url: "https://github.com/doodlewind" },
   },
   {

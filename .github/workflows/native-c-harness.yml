@@ -1,53 +1,44 @@
 name: Native C harness
 
+# The generated C adapter on both hosts, plus the UIKit ARMv7 compiler check
+# that Linux skips. Portable native-program contracts run in test.yml.
+
 on:
   pull_request:
-    paths:
+    paths: &paths
+      - ".bun-version"
       - ".github/workflows/native-c-harness.yml"
-      - "engine/quickjs-c/**"
-      - "engine/ui-cabi/**"
-      - "engine/core/**"
-      - "framework/src/**"
-      - "framework/compiler/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "programs/native/**"
+      - "programs/ipodtouch4/**"
+      - "engine/guest-quickjs/**"
+      - "engine/runtime/**"
+      - "programs/sdk/archive/**"
       - "contracts/**"
-      - "tests/fixtures/quickjs-c-harness/**"
-      - "tests/fixtures/ui-cabi-allocator/**"
-      - "tests/quickjs-c-harness.test.ts"
-      - "tests/ui-cabi-allocator.test.ts"
-      - "tests/renderer.test.ts"
-      - "tests/virtual-list.test.ts"
-      - "tests/vue-vapor-dom.test.ts"
-      - "tools/build.ts"
-      - "package.json"
-      - "bun.lock"
+      - "hosts/ipodtouch4-dev/**"
+      - "tools/ui-bindings.ts"
+      - "tools/test-quickjs-guest.ts"
+      - "tools/ipodtouch4*.ts"
+      - "tools/ios6-setup.ts"
+      - "tools/native-source.ts"
+      - "tools/build/toolchains/**"
+      - "tests/ipodtouch4-native.test.ts"
   push:
     branches: [main]
-    paths:
-      - ".github/workflows/native-c-harness.yml"
-      - "engine/quickjs-c/**"
-      - "engine/ui-cabi/**"
-      - "engine/core/**"
-      - "framework/src/**"
-      - "framework/compiler/**"
-      - "contracts/**"
-      - "tests/fixtures/quickjs-c-harness/**"
-      - "tests/fixtures/ui-cabi-allocator/**"
-      - "tests/quickjs-c-harness.test.ts"
-      - "tests/ui-cabi-allocator.test.ts"
-      - "tests/renderer.test.ts"
-      - "tests/virtual-list.test.ts"
-      - "tests/vue-vapor-dom.test.ts"
-      - "tools/build.ts"
-      - "package.json"
-      - "bun.lock"
+    paths: *paths
   workflow_dispatch: {}
 
 permissions:
   contents: read
 
+concurrency:
+  group: native-c-harness-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   harness:
-    name: C runtime + allocator (${{ matrix.os }})
+    name: Generated guest and native compiler (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
@@ -57,22 +48,18 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
-      - uses: dtolnay/rust-toolchain@stable
-      - run: bun install --frozen-lockfile
-      - name: Install the UI C ABI's pinned nightly
+        with:
+          bun-version-file: .bun-version
+      - name: Install the workspace stable compiler
         run: |
-          toolchain=$(bun -e 'console.log(Bun.TOML.parse(await Bun.file("engine/ui-cabi/rust-toolchain.toml").text()).toolchain.channel)')
-          rustup toolchain install "$toolchain" --profile minimal
+          stable=$(bun -e 'console.log((await import("./tools/build/toolchains/rust.ts")).STABLE_RUST_TOOLCHAIN)')
+          rustup toolchain install "$stable" --profile minimal
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: engine/ui-cabi
-      - name: Build renderer test styles
-        run: bun tools/build.ts hero
-      - name: Renderer and runtime stage/dispatcher contracts
-        run: bun test --conditions=browser tests/quickjs-c-harness.test.ts tests/renderer.test.ts tests/virtual-list.test.ts tests/vue-vapor-dom.test.ts
-      - name: UI singleton access and alignment policy
-        run: cargo test --locked --manifest-path engine/ui-cabi/Cargo.toml --features harness-access
-      - name: Link and execute the real C allocator
-        run: bun test tests/ui-cabi-allocator.test.ts
-      - name: Contract drift
-        run: bun tests/contract.ts
+          workspaces: .
+      - run: bun install --frozen-lockfile
+      - name: Generated C guest against QuickJS-NG
+        run: bun tools/test-quickjs-guest.ts
+      - name: Touch4 UIKit and pinned QuickJS ARMv7 compilation
+        if: runner.os == 'macOS'
+        run: bun test tests/ipodtouch4-native.test.ts

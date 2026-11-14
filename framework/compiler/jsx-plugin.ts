@@ -6,10 +6,18 @@ import solidPreset from "babel-preset-solid";
 import tsPreset from "@babel/preset-typescript"; // untyped - see framework/compiler/ambient.d.ts
 import { transformVueJsxVapor } from "vue-jsx-vapor/api";
 import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { compileVueSfc } from "./vue-sfc-compile.ts";
 import { compileSvelte, compileSvelteModule } from "./svelte-compile.ts";
 import { transformSvelteRuntime } from "./svelte-fold.ts";
+import { compilerPackageDirectory, findPackageDirectory, packageVersion } from "./runtime-packages.ts";
+import { pocketNexusCacheRoot } from "../../tools/targets/cache.ts";
+import { getSolidAotProgram, resolveSolidAotMock, resolveSolidAotModel } from "../../microts/compiler/aot-solid-browser.ts";
+import { normalizeSolidAotSemantics } from "../../microts/compiler/aot-solid-semantics.ts";
+import { transformCompiledModel } from "../../microts/compiler/aot-model-build.ts";
+import { exposeVaporFrameFlush } from "./vue-vapor-frame-flush.ts";
+import { checkVueAotSource, hasVueAotContract, resolveVueAotMock } from "../../microts/compiler/aot-browser.ts";
 import {
   propsHelperCode,
   propsHelperId,
@@ -30,8 +38,10 @@ import octanePkg from "octane/package.json";
 import sveltePkg from "svelte/package.json";
 import babelCorePkg from "@babel/core/package.json";
 import tsPresetPkg from "@babel/preset-typescript/package.json";
-import type { PocketFramework } from "../src/config.ts";
-import { POCKET_FRAMEWORKS, SUBPATHS } from "./subpaths.ts";
+import type { PocketFramework } from "../../contracts/spec/pocket-manifest.ts";
+import { FRAMEWORK_CHOICES, parseFramework } from "./framework-choice.ts";
+export { parseFramework } from "./framework-choice.ts";
+import { POCKET_FRAMEWORKS, SUBPATHS, resolvesIn } from "./subpaths.ts";
 
 export type { PocketFramework };
 
@@ -79,19 +89,31 @@ const SVELTE_RUNTIME_FILE = /[\\/]node_modules[\\/]svelte[\\/]src[\\/].*\.js$/;
 const GENERATED_STYLES_PATH = fileURLToPath(
   new URL("../src/styles.generated.ts", import.meta.url),
 );
-const VUE_VAPOR_RUNTIME_PATH = fileURLToPath(
-  new URL("../../node_modules/vue/dist/vue.runtime-with-vapor.esm-browser.prod.js", import.meta.url),
+/** The absolute path a relative import names; bare specifiers stay bare. */
+function resolveImport(importer: string, specifier: string): string {
+  if (!specifier.startsWith(".")) return specifier;
+  const absolute = join(dirname(importer), specifier);
+  return absolute.endsWith(".ts") ? absolute : `${absolute}.ts`;
+}
+const SOLID_DIRECTORY = compilerPackageDirectory("solid-js");
+const VUE_VAPOR_RUNTIME_PATH = join(compilerPackageDirectory("vue"), "dist/vue.runtime-with-vapor.esm-browser.prod.js");
+const SOLID_RUNTIME_PATH = join(SOLID_DIRECTORY, "dist/solid.js");
+const SOLID_UNIVERSAL_RUNTIME_PATH = join(SOLID_DIRECTORY, "universal/dist/universal.js");
+/** Versions whose code or output enters the bundle without a package.json
+ *  import below: the Solid runtime, and the JSX plugin babel-preset-solid
+ *  resolves from its own directory. */
+const SOLID_RUNTIME_VERSION = packageVersion(SOLID_DIRECTORY);
+const SOLID_JSX_PLUGIN_DIRECTORY = findPackageDirectory(
+  "babel-plugin-jsx-dom-expressions",
+  compilerPackageDirectory("babel-preset-solid"),
 );
-const SOLID_RUNTIME_PATH = fileURLToPath(
-  new URL("../../node_modules/solid-js/dist/solid.js", import.meta.url),
-);
-const SOLID_UNIVERSAL_RUNTIME_PATH = fileURLToPath(
-  new URL("../../node_modules/solid-js/universal/dist/universal.js", import.meta.url),
-);
+const SOLID_JSX_PLUGIN_VERSION = SOLID_JSX_PLUGIN_DIRECTORY ? packageVersion(SOLID_JSX_PLUGIN_DIRECTORY) : "absent";
 
 const PACKAGE_NAME = "@pocketjs/framework";
-const CACHE_DIR = fileURLToPath(new URL("../../.cache/transforms/", import.meta.url));
-const CACHE_VERSION = "2"; // manual backstop; compiler sources are hashed in below
+// Content-addressed by compiler sources, dependency versions, path and source
+// text, so checkouts, forks and installed frameworks share it safely.
+const CACHE_DIR = join(pocketNexusCacheRoot(), "transforms") + "/";
+const CACHE_VERSION = "3"; // manual backstop; compiler sources are hashed in below
 const COMPILER_DIR = new URL("./", import.meta.url).pathname;
 
 /**
@@ -152,26 +174,22 @@ export const FRAMEWORKS: Record<
   }
 > = {
   solid: {
-    label: "Solid",
-    outputSuffix: "",
+    ...FRAMEWORK_CHOICES["solid"],
     rendererPath: RESOLVED.solid.renderer,
     rootPath: RESOLVED.solid[""],
   },
   "vue-vapor": {
-    label: "Vue Vapor",
-    outputSuffix: ".vue-vapor",
+    ...FRAMEWORK_CHOICES["vue-vapor"],
     rendererPath: RESOLVED["vue-vapor"].renderer,
     rootPath: RESOLVED["vue-vapor"][""],
   },
   octane: {
-    label: "Octane",
-    outputSuffix: ".octane",
+    ...FRAMEWORK_CHOICES["octane"],
     rendererPath: RESOLVED.octane.renderer,
     rootPath: RESOLVED.octane[""],
   },
   svelte: {
-    label: "Svelte",
-    outputSuffix: ".svelte",
+    ...FRAMEWORK_CHOICES["svelte"],
     variantExtension: ".ts",
     rendererPath: RESOLVED.svelte.renderer,
     rootPath: RESOLVED.svelte[""],
@@ -215,14 +233,14 @@ const VAPOR_HELPERS = new Map([
   [ssrHelperId, ssrHelperCode],
 ]);
 
-export function parseFramework(value: string | undefined, source: string): PocketFramework {
-  if (value === undefined || value === "") return "solid";
-  if (value === "solid" || value === "vue-vapor" || value === "octane" || value === "svelte") {
-    return value;
-  }
-  throw new Error(
-    `PocketJS ${source}: framework must be "solid", "vue-vapor", "octane" or "svelte"`,
-  );
+
+/** A string literal and where the source wrote it: 1-based line and column. */
+export interface LiteralSite {
+  literal: string;
+  line: number;
+  column: number;
+  /** Whether the literal is the value of a JSX `class` attribute, or one branch of it. */
+  inClass: boolean;
 }
 
 export interface TransformResult {
@@ -232,11 +250,20 @@ export interface TransformResult {
   classStrings: string[];
   /** Every codepoint appearing in any collected literal. */
   textCodepoints: Set<number>;
+  /**
+   * Each string literal in a `class` attribute, and each literal of two or
+   * more words anywhere else, with its place in the file. The build reports
+   * the ones that did not compile (tools/build.ts). Empty for a Vue SFC and
+   * for a module a lowering rewrote: the collector's positions are then not
+   * the file's.
+   */
+  literalSites: LiteralSite[];
 }
 
 interface Collected {
   classStrings: string[];
   textCodepoints: Set<number>;
+  literalSites: LiteralSite[];
 }
 
 export type BuildFeatures = Readonly<Record<string, boolean>>;
@@ -286,17 +313,60 @@ function makeCollector(out: Collected, framework: PocketFramework): PluginObj {
       out.classStrings.push(s);
     }
   };
+  // The literals a `class` attribute holds: its string value, or the string
+  // branches of the ternaries and `&&` / `||` / `??` chains in its expression.
+  const classNodes = new Set<object>();
+  const markClass = (node: { type: string } | null | undefined): void => {
+    if (!node) return;
+    const n = node as unknown as Record<string, { type: string }>;
+    switch (node.type) {
+      case "StringLiteral":
+      case "TemplateLiteral":
+        classNodes.add(node);
+        return;
+      case "JSXExpressionContainer":
+      case "ParenthesizedExpression":
+      case "TSAsExpression":
+      case "TSSatisfiesExpression":
+      case "TSNonNullExpression":
+        return markClass(n.expression);
+      case "ConditionalExpression":
+        markClass(n.consequent);
+        return markClass(n.alternate);
+      case "LogicalExpression":
+        markClass(n.left);
+        return markClass(n.right);
+    }
+  };
+  const site = (node: object, literal: string, loc: { start: { line: number; column: number } } | null | undefined): void => {
+    const inClass = classNodes.has(node);
+    // Outside a class attribute one word says nothing: it compiles or it is ordinary text.
+    if (!loc || literal.trim() === "" || (!inClass && !/\S\s+\S/.test(literal))) return;
+    out.literalSites.push({ literal, line: loc.start.line, column: loc.start.column + 1, inClass });
+  };
   return {
     name: "pocketjs-collect",
     visitor: {
       Program: {
         enter(program) {
+          // First, so every literal below knows whether a class attribute holds it.
+          program.traverse({
+            JSXAttribute(path) {
+              const name = path.node.name;
+              if (name.type === "JSXIdentifier" && name.name === "class") markClass(path.node.value);
+            },
+          });
           program.traverse({
             StringLiteral(path) {
               add(path.node.value);
+              site(path.node, path.node.value, path.node.loc);
             },
             TemplateLiteral(path) {
               for (const q of path.node.quasis) add(q.value.cooked ?? q.value.raw);
+              if (path.node.expressions.length === 0 && path.node.quasis.length === 1) {
+                const quasi = path.node.quasis[0]!;
+                site(path.node, quasi.value.cooked ?? quasi.value.raw, path.node.loc);
+              }
             },
             JSXText(path) {
               const raw = path.node.extra?.raw;
@@ -374,6 +444,10 @@ async function hashKey(
       "\0" +
       solidPresetPkg.version +
       "\0" +
+      SOLID_JSX_PLUGIN_VERSION +
+      "\0" +
+      SOLID_RUNTIME_VERSION +
+      "\0" +
       compilerSfcPkg.version +
       "\0" +
       vuePkg.version +
@@ -407,6 +481,7 @@ interface CacheEntry {
   code: string;
   classStrings: string[];
   textCodepoints: number[];
+  literalSites: LiteralSite[];
 }
 
 function resolvePackageSubpath(spec: string): string | null {
@@ -426,18 +501,41 @@ export function packagePath(spec: string, framework: PocketFramework): string | 
   const subpath = resolvePackageSubpath(spec);
   if (subpath === null) return null;
   for (const fw of POCKET_FRAMEWORKS) {
-    if (subpath === fw) return RESOLVED[fw][""] ?? null;
+    if (subpath === fw) return uiDomain(spec, "", RESOLVED[fw][""] ?? null);
     if (subpath.startsWith(fw + "/")) {
-      return RESOLVED[fw][subpath.slice(fw.length + 1)] ?? null;
+      const bare = subpath.slice(fw.length + 1);
+      return RESOLVED[fw][subpath] !== undefined
+        ? uiDomain(spec, subpath, RESOLVED[fw][subpath])
+        : uiDomain(spec, bare, RESOLVED[fw][bare] ?? null);
     }
   }
-  return RESOLVED[framework][subpath] ?? null;
+  return uiDomain(spec, subpath, RESOLVED[framework][subpath] ?? null);
 }
 
-/** Bun reports native paths (`\` separators on Windows); normalize before
- *  matching the `/node_modules/` prefix written in source specifiers. */
+/** This compiler builds the UI bundle: a registry row another domain owns is
+ *  an error here, not a fallthrough to package.json resolution. */
+function uiDomain(spec: string, name: string, path: string | null): string | null {
+  const decl = SUBPATHS[name];
+  if (decl && !resolvesIn(decl, "ui")) {
+    throw new Error(`UI domain cannot import ${spec}: the subpath resolves only in the worker domain (domains.worker.entry)`);
+  }
+  return path;
+}
+
+/** The framework's own directory. An application install places it under
+ *  `node_modules/@pocketjs/framework`; its sources still compile as
+ *  framework sources. */
+const FRAMEWORK_ROOT = fileURLToPath(new URL("../../", import.meta.url)).replace(/\\/g, "/");
+
+/** A file of a third-party package. Inside the framework directory that is a
+ *  path through the framework's own `node_modules` (a checkout); elsewhere,
+ *  any path through `node_modules`. Bun reports native paths (`\` separators
+ *  on Windows); normalize before matching. */
 function isNodeModuleFile(path: string): boolean {
-  return path.replace(/\\/g, "/").includes("/node_modules/");
+  const normalized = path.replace(/\\/g, "/");
+  return normalized.startsWith(FRAMEWORK_ROOT)
+    ? normalized.slice(FRAMEWORK_ROOT.length).includes("node_modules/")
+    : normalized.includes("/node_modules/");
 }
 
 export function frameworkVariantPath(path: string, framework: PocketFramework): string {
@@ -469,13 +567,13 @@ export async function transformFile(
   path: string,
   src: string,
   framework: PocketFramework,
-  options: { features?: BuildFeatures } = {},
+  options: { features?: BuildFeatures; entry?: string } = {},
 ): Promise<TransformResult> {
   const isVueSfc = path.endsWith(".vue");
   if (isVueSfc && framework !== "vue-vapor") {
     throw new Error(
       `PocketJS: ${path} is a Vue SFC and requires framework \"vue-vapor\" ` +
-        `(set app.framework in pocket.json or pass --framework=vue-vapor)`,
+        `(set app.framework in pocket.app.json or pass --framework=vue-vapor)`,
     );
   }
   const isSvelte = path.endsWith(".svelte");
@@ -483,54 +581,26 @@ export async function transformFile(
   if ((isSvelte || isSvelteModule) && framework !== "svelte") {
     throw new Error(
       `PocketJS: ${path} is a Svelte module and requires framework \"svelte\" ` +
-        `(set app.framework in pocket.json or pass --framework=svelte)`,
+        `(set app.framework in pocket.app.json or pass --framework=svelte)`,
     );
   }
-  const key = await hashKey(path, src, framework, options.features);
-  const cacheFile = CACHE_DIR + key + ".json";
-  const cached = (await Bun.file(cacheFile).json().catch(() => null)) as CacheEntry | null;
-  if (cached && typeof cached.code === "string") {
-    return {
-      code: cached.code,
-      classStrings: cached.classStrings,
-      textCodepoints: new Set(cached.textCodepoints),
-    };
-  }
-
-  if (isVueSfc) {
-    const result = compileVueSfc(src, path, { stripTypes: true });
-    const collected: Collected = { classStrings: [], textCodepoints: new Set() };
-    const transformed = await transformAsync(result.code, {
-      filename: path,
-      presets: [],
-      parserOpts: JSX_PARSER_OPTS,
-      plugins: [
-        ...(options.features === undefined ? [] : [makeFeatureFolder(options.features)]),
-        makeCollector(collected, framework),
-      ],
-      babelrc: false,
-      configFile: false,
-      sourceMaps: false,
-    });
-    if (!transformed?.code && transformed?.code !== "") {
-      throw new Error(`PocketJS Vue SFC transform produced no output for ${path}`);
-    }
-    const entry: CacheEntry = {
-      code: transformed.code!,
-      classStrings: collected.classStrings,
-      textCodepoints: [...collected.textCodepoints],
-    };
-    await Bun.write(cacheFile, JSON.stringify(entry));
-    return {
-      code: entry.code,
-      classStrings: entry.classStrings,
-      textCodepoints: new Set(entry.textCodepoints),
-    };
-  }
-
+  // A Svelte component or runes module compiles through svelte-compile.ts.
+  // The Solid AOT and compiled-model lowerings below read TSX and model
+  // modules, so this branch returns before them.
   if (isSvelte || isSvelteModule) {
+    const key = await hashKey(path, src, framework, options.features);
+    const cacheFile = CACHE_DIR + key + ".json";
+    const cached = (await Bun.file(cacheFile).json().catch(() => null)) as CacheEntry | null;
+    if (cached && typeof cached.code === "string") {
+      return {
+        code: cached.code,
+        classStrings: cached.classStrings,
+        textCodepoints: new Set(cached.textCodepoints),
+        literalSites: [],
+      };
+    }
     const result = isSvelte ? compileSvelte(src, path) : compileSvelteModule(src, path);
-    const collected: Collected = { classStrings: [], textCodepoints: new Set() };
+    const collected: Collected = { classStrings: [], textCodepoints: new Set(), literalSites: [] };
     const transformed = await transformAsync(result.code, {
       filename: path,
       presets: [],
@@ -550,16 +620,75 @@ export async function transformFile(
       code: transformed.code!,
       classStrings: collected.classStrings,
       textCodepoints: [...collected.textCodepoints],
+      // The collector read compiled Svelte output: its positions are not the file's.
+      literalSites: [],
     };
     await Bun.write(cacheFile, JSON.stringify(entry));
     return {
       code: entry.code,
       classStrings: entry.classStrings,
       textCodepoints: new Set(entry.textCodepoints),
+      literalSites: [],
+    };
+  }
+  // Contract dependencies can change without changing the SFC's transform
+  // hash, so admission precedes the cache lookup on browser and guest builds.
+  if (isVueSfc && hasVueAotContract(src, path)) checkVueAotSource(src, path);
+  const written = src;
+  const solidAot = framework === "solid" && path.endsWith(".tsx") ? getSolidAotProgram(path, src, options.entry) : undefined;
+  if (solidAot) src = normalizeSolidAotSemantics(src, path, solidAot);
+  src = transformCompiledModel(src, path, options.entry) ?? src;
+  // A lowering above rewrote the text, so the collector's positions are not the file's.
+  const positionsHold = src === written;
+  const key = await hashKey(path, src, framework, options.features);
+  const cacheFile = CACHE_DIR + key + ".json";
+  const cached = (await Bun.file(cacheFile).json().catch(() => null)) as CacheEntry | null;
+  // SFC output also depends on imported props and declaration modules. Their
+  // contents are outside this per-file hash, including on pure child views.
+  if (!isVueSfc && !solidAot && cached && typeof cached.code === "string") {
+    return {
+      code: cached.code,
+      classStrings: cached.classStrings,
+      textCodepoints: new Set(cached.textCodepoints),
+      literalSites: cached.literalSites ?? [],
     };
   }
 
-  const collected: Collected = { classStrings: [], textCodepoints: new Set() };
+  if (isVueSfc) {
+    const result = compileVueSfc(src, path, { stripTypes: true, checkedAot: true });
+    const collected: Collected = { classStrings: solidAot ? Object.keys(solidAot.styles.ids) : [], textCodepoints: new Set(), literalSites: [] };
+    const transformed = await transformAsync(result.code, {
+      filename: path,
+      presets: [],
+      parserOpts: JSX_PARSER_OPTS,
+      plugins: [
+        ...(options.features === undefined ? [] : [makeFeatureFolder(options.features)]),
+        makeCollector(collected, framework),
+      ],
+      babelrc: false,
+      configFile: false,
+      sourceMaps: false,
+    });
+    if (!transformed?.code && transformed?.code !== "") {
+      throw new Error(`PocketJS Vue SFC transform produced no output for ${path}`);
+    }
+    const entry: CacheEntry = {
+      code: transformed.code!,
+      classStrings: collected.classStrings,
+      textCodepoints: [...collected.textCodepoints],
+      // The collector read compiled SFC output: its positions are not the file's.
+      literalSites: [],
+    };
+    await Bun.write(cacheFile, JSON.stringify(entry));
+    return {
+      code: entry.code,
+      classStrings: entry.classStrings,
+      textCodepoints: new Set(entry.textCodepoints),
+      literalSites: [],
+    };
+  }
+
+  const collected: Collected = { classStrings: solidAot ? Object.keys(solidAot.styles.ids) : [], textCodepoints: new Set(), literalSites: [] };
   const opts = transformOptions(framework);
   const plugins = [
     ...(options.features === undefined ? [] : [makeFeatureFolder(options.features)]),
@@ -635,9 +764,10 @@ export async function transformFile(
     code: res.code!,
     classStrings: collected.classStrings,
     textCodepoints: [...collected.textCodepoints],
+    literalSites: positionsHold ? collected.literalSites : [],
   };
   await Bun.write(cacheFile, JSON.stringify(entry));
-  return { code: entry.code, classStrings: entry.classStrings, textCodepoints: collected.textCodepoints };
+  return { code: entry.code, classStrings: entry.classStrings, textCodepoints: collected.textCodepoints, literalSites: entry.literalSites };
 }
 
 export function jsxPlugin(
@@ -651,6 +781,7 @@ export function jsxPlugin(
   return {
     name: `pocketjs-${framework}-jsx`,
     setup(build) {
+      const declarationMocks = new Map<string, string>();
       // External applications may have their own node_modules. Resolve both
       // sides of the renderer boundary to PocketJS's browser-mode Solid copy,
       // otherwise identical packages at different paths form two reactive
@@ -661,12 +792,48 @@ export function jsxPlugin(
       build.onResolve({ filter: /^solid-js\/universal$/ }, () => ({
         path: SOLID_UNIVERSAL_RUNTIME_PATH,
       }));
+      // The framework's style table is this build's, served from memory:
+      // nothing is written into the framework directory, which an installed
+      // framework may not allow, and concurrent builds share nothing. A
+      // plugin user without a table bundles the committed empty one.
+      if (opts.generatedStyles !== undefined) {
+        const generatedStyles = opts.generatedStyles;
+        build.onResolve({ filter: /(?:^|\/)styles\.generated(?:\.ts)?$/ }, (args) =>
+          resolveImport(args.importer, args.path) === GENERATED_STYLES_PATH
+            ? { path: GENERATED_STYLES_PATH, namespace: "pocketjs-generated-styles" }
+            : undefined,
+        );
+        build.onLoad({ filter: /.*/, namespace: "pocketjs-generated-styles" }, () => ({
+          contents: generatedStyles,
+          loader: "ts",
+        }));
+      }
       build.onResolve({ filter: /^@pocketjs\/framework(?:\/.*)?$/ }, (args) => {
         const path = packagePath(args.path, framework);
         return path ? { path } : undefined;
       });
+      if (framework === "solid") {
+        build.onResolve({ filter: /^\.{1,2}\// }, args => {
+          const mock = resolveSolidAotMock(args.importer, args.path, opts.entry);
+          if (mock === undefined) {
+            const path = resolveSolidAotModel(args.importer, args.path, opts.entry);
+            return path ? { path } : undefined;
+          }
+          const path = resolveSolidAotModel(args.importer, args.path, opts.entry)!;
+          declarationMocks.set(path, mock);
+          return { path, namespace: "solid-aot-declarations" };
+        });
+        build.onLoad({ filter: /.*/, namespace: "solid-aot-declarations" }, args => ({ contents: declarationMocks.get(args.path)!, loader: "js", resolveDir: new URL(".", import.meta.url).pathname }));
+      }
       if (framework !== "solid") {
         build.onResolve({ filter: /^\.{1,2}\// }, (args) => {
+          if (framework === "vue-vapor") {
+            const mock = resolveVueAotMock(args.importer, args.path);
+            if (mock !== undefined) {
+              declarationMocks.set(args.importer, mock);
+              return { path: args.importer, namespace: "vue-aot-declarations" };
+            }
+          }
           let resolved: string;
           try {
             resolved = Bun.resolveSync(args.path, args.resolveDir);
@@ -692,7 +859,13 @@ export function jsxPlugin(
         );
       }
       if (framework === "vue-vapor") {
+        build.onLoad({ filter: /.*/, namespace: "vue-aot-declarations" }, (args) => ({
+          contents: declarationMocks.get(args.path)!,
+          loader: "js",
+          resolveDir: new URL(".", import.meta.url).pathname,
+        }));
         build.onResolve({ filter: /^vue$/ }, () => ({ path: VUE_VAPOR_RUNTIME_PATH }));
+        build.onLoad({ filter: /vue\.runtime-with-vapor\.esm-browser\.prod\.js$/ }, async args => ({ contents: exposeVaporFrameFlush(await Bun.file(args.path).text()), loader: "js" }));
         build.onResolve({ filter: /^\/vue-jsx-vapor\/(?:props|vdom|vapor|ssr)$/ }, (args) => ({
           path: args.path,
           namespace: "vue-vapor-helper",
@@ -724,6 +897,7 @@ export function jsxPlugin(
           const src = await Bun.file(args.path).text();
           const { code } = await transformFile(args.path, src, framework, {
             features: opts.features,
+            entry: opts.entry,
           });
           return { contents: code, loader: "js" };
         });
@@ -734,19 +908,16 @@ export function jsxPlugin(
         // is registered first, but Bun runs every matching rule until one
         // returns, so bail out explicitly.
         if (/\.svelte\.[jt]s$/.test(args.path)) return undefined;
-        let src = args.path === GENERATED_STYLES_PATH &&
-            opts.generatedStyles !== undefined
-          ? opts.generatedStyles
-          : await Bun.file(args.path).text();
+        let src = await Bun.file(args.path).text();
         if (framework === "vue-vapor" && args.path === opts.entry) {
           src = `import "@pocketjs/framework/prelude";\n${src}`;
         }
-        const { code } = await transformFile(args.path, src, framework, { features: opts.features });
+        const { code } = await transformFile(args.path, src, framework, { features: opts.features, entry: opts.entry });
         return { contents: code, loader: "js" };
       });
       build.onLoad({ filter: /\.vue$/ }, async (args) => {
         const src = await Bun.file(args.path).text();
-        const { code } = await transformFile(args.path, src, framework, { features: opts.features });
+        const { code } = await transformFile(args.path, src, framework, { features: opts.features, entry: opts.entry });
         return { contents: code, loader: "js" };
       });
     },

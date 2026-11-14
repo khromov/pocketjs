@@ -1,3 +1,4 @@
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 // Renderer contract tests — drive framework/src/renderer.ts against a MOCK HostOps that
 // records every op call, using the real solid-js/universal reconciler under
 // Bun. No JSX here (babel isn't in the loop for tests): we call the renderer
@@ -39,10 +40,12 @@ import {
   insert,
   insertNode,
   missCounters,
+  registerSprite,
   registerTexture,
   release,
   render,
   resetRendererState,
+  resetSprites,
   resetTextures,
   retain,
   runSweep,
@@ -286,6 +289,7 @@ beforeEach(() => {
   installHost(host);
   resetRendererState();
   resetStyles();
+  resetSprites();
   resetTextures();
   resetPack();
   resetInput();
@@ -820,6 +824,35 @@ describe("setProperty dispatch table [R]", () => {
     expect(host.of("setImage")).toEqual([["setImage", el.id, -1]]);
   });
 
+  test("sprite frameStep overrides the manifest and can be updated at runtime", () => {
+    registerSprite("spinner-atlas.svg", { handle: 41, frames: 8, cols: 4, step: 3 });
+    const overridden = createElement("image");
+    setProp(overridden, "frameStep", 6, undefined);
+    setProp(overridden, "sprite", "spinner-atlas.svg", undefined);
+    expect(host.of("setSprite")).toEqual([
+      ["setSprite", overridden.id, 41, 8, 4, 6],
+    ]);
+
+    host.clear();
+    setProp(overridden, "frameStep", 2.9, 6);
+    expect(host.of("setSprite")).toEqual([
+      ["setSprite", overridden.id, 41, 8, 4, 2],
+    ]);
+
+    host.clear();
+    setProp(overridden, "frameStep", undefined, 2.9);
+    expect(host.of("setSprite")).toEqual([
+      ["setSprite", overridden.id, 41, 8, 4, 3],
+    ]);
+
+    host.clear();
+    const fromManifest = createElement("image");
+    setProp(fromManifest, "sprite", "spinner-atlas.svg", undefined);
+    expect(host.of("setSprite")).toEqual([
+      ["setSprite", fromManifest.id, 41, 8, 4, 3],
+    ]);
+  });
+
   test("classList / bool: / prop: / unknown props are loud errors", () => {
     const el = createElement("view");
     expect(() => setProp(el, "classList", { a: true }, undefined)).toThrow(
@@ -1062,23 +1095,24 @@ describe("host detection (host.ts)", () => {
     );
   });
 
-  test("resolved build contract rejects the wrong native target or ABI", () => {
+  test("resolved build contract admits another host id and rejects another ABI", () => {
     const ops = makeMockHost().ops;
     ops.__host = "vita";
-    ops.__hostAbi = 1;
+    ops.__hostAbi = POCKET_BINDING_GENERATION;
 
     expect(() =>
       assertNativeHostContract(ops, {
         target: "vita",
-        hostAbi: 1,
+        hostAbi: POCKET_BINDING_GENERATION,
       }),
     ).not.toThrow();
+    // Admission compared the device's facts; the id is provenance.
     expect(() =>
       assertNativeHostContract(ops, {
         target: "psp",
-        hostAbi: 1,
+        hostAbi: POCKET_BINDING_GENERATION,
       }),
-    ).toThrow(/target mismatch/);
+    ).not.toThrow();
     expect(() =>
       assertNativeHostContract(ops, {
         target: "vita",
@@ -1087,8 +1121,21 @@ describe("host detection (host.ts)", () => {
     ).toThrow(/ABI mismatch/);
   });
 
+  test("raw native bundles reject legacy namespaces without a target plan", () => {
+    const ops = makeMockHost().ops;
+    for (let generation = 1; generation < POCKET_BINDING_GENERATION; generation++) {
+      ops.__hostAbi = generation;
+      expect(() => assertNativeHostContract(ops, null)).toThrow(/rebuild the native host/);
+    }
+    delete ops.__hostAbi;
+    expect(() => assertNativeHostContract(ops, null)).toThrow(/rebuild the native host/);
+    ops.__hostAbi = POCKET_BINDING_GENERATION;
+    expect(() => assertNativeHostContract(ops, null)).not.toThrow();
+  });
+
   test("tick-rate pairing: bundle-baked hz must match the host's declared rate", () => {
     const ops = makeMockHost().ops;
+    ops.__hostAbi = POCKET_BINDING_GENERATION;
 
     // A 60-baked bundle accepts hosts that predate __tickHz (they only ever
     // ran 60) and hosts that declare 60 — with or without a plan contract.
@@ -1098,10 +1145,10 @@ describe("host detection (host.ts)", () => {
 
     // A host driving another rate is refused even when the plan matches.
     ops.__host = "vita";
-    ops.__hostAbi = 1;
+    ops.__hostAbi = POCKET_BINDING_GENERATION;
     ops.__tickHz = 120;
     expect(() =>
-      assertNativeHostContract(ops, { target: "vita", hostAbi: 1 }),
+      assertNativeHostContract(ops, { target: "vita", hostAbi: POCKET_BINDING_GENERATION }),
     ).toThrow(/tick-rate mismatch/);
 
     // A non-60 bundle (the define is read at call time — see host.ts) needs
@@ -1129,6 +1176,7 @@ describe("host detection (host.ts)", () => {
     // injected/strict host (crash-on-miss on hardware + double asset feed).
     const psp = makeMockHost();
     psp.ops.__host = "psp";
+    psp.ops.__hostAbi = POCKET_BINDING_GENERATION;
     (psp.ops as HostOps & { __textures?: Record<string, number> }).__textures =
       {
         "logo.png": 0,
@@ -1158,7 +1206,7 @@ describe("host detection (host.ts)", () => {
   test("target-marked native host without resource tables uses portable pak feed", () => {
     const symbian = makeMockHost();
     symbian.ops.__host = "symbian-e7-dev";
-    symbian.ops.__hostAbi = 4;
+    symbian.ops.__hostAbi = POCKET_BINDING_GENERATION;
     const g = globalThis as { ui?: HostOps; __pak?: ArrayBuffer };
     const pak = pack([
       {
@@ -1851,4 +1899,34 @@ describe("public render() (index.ts)", () => {
 
     dispose();
   });
+});
+
+test("Text resource swaps one complete value and unsubscribes from superseded batches", () => {
+  function resource() {
+    let state: ResourceState<{ text: string; slot: number }> = pending();
+    const listeners = new Set<() => void>();
+    return { state: () => state, listeners, dispose() {},
+      subscribe(fn: () => void) { listeners.add(fn); return () => { listeners.delete(fn); }; },
+      publish(next: typeof state) { state = next; for (const fn of listeners) fn(); },
+    };
+  }
+  const first = resource(), second = resource(), [selected, setSelected] = createSignal(first);
+  const dispose = render(() => Text({ get resource() { return selected(); },
+    children: "must not leak unprepared children", style: { fontSlot: 0 },
+    fallback: () => Text({ children: "Loading" }), errorFallback: () => Text({ children: "Error" }),
+  }) as unknown as NodeMirror, root);
+  expect(host.of("setText").some(c => c[2] === "Loading")).toBe(true);
+  expect(host.of("setText").some(c => String(c[2]).includes("unprepared"))).toBe(false);
+  first.publish(ready({ text: "你好𠮷野", slot: 2 })); runSweep();
+  expect(host.of("setText").some(c => c[2] === "你好𠮷野")).toBe(true);
+  expect(host.of("setProp").some(c => c[2] === PROP.fontSlot && c[3] === 2)).toBe(true);
+  setSelected(second); runSweep(); host.clear();
+  expect(first.listeners.size).toBe(0);
+  first.publish(ready({ text: "stale", slot: 2 }));
+  expect(host.of("setText")).toHaveLength(0);
+  second.publish(ready({ text: "new", slot: 4 }));
+  expect(host.of("setText").some(c => c[2] === "new")).toBe(true);
+  second.publish(failed("offline")); runSweep();
+  expect(host.of("setText").some(c => c[2] === "Error")).toBe(true);
+  dispose(); expect(second.listeners.size).toBe(0);
 });

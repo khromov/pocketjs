@@ -1,7 +1,7 @@
 # Frameworks
 
-PocketJS supports four app frameworks over the same native tree and Rust
-core:
+PocketJS supports TypeScript applications using four framework adapters over
+the same native tree and Rust core:
 
 | Framework | Build id | Component transform | Runtime renderer | Output suffix |
 |---|---|---|---|---|
@@ -10,13 +10,20 @@ core:
 | Octane | `octane` | Octane universal compiler (host plans + slots) | `renderer-octane.ts` (pocket universal driver over the native tree) | `.octane` |
 | Svelte | `svelte` | Svelte's custom-renderer compiler (`experimental.customRenderer`) | `renderer-svelte.ts` | `.svelte` |
 
+**Solid TSX and Vue SFC views can also compile to Rust.** A native application
+uses a compiled TypeScript model or a handwritten Rust model. The
+[TypeScript support reference](/docs/typescript-support/#execution-modes)
+compares those modes with the ordinary guest applications described below.
+Selecting `framework: "vue-vapor"` chooses the Vue adapter; model compilation
+requires its own app contract settings.
+
 Solid is the default so existing apps keep building to `dist/<app>.js` and
 `dist/<app>.pak`. The others build next to it:
 
 ```sh
 bun tools/build.ts hero-main                    # dist/hero-main.js
-bun tools/build.ts hero-vue-vapor-main --framework=vue-vapor
-# dist/hero-vue-vapor-main.vue-vapor.js
+bun tools/build.ts hero-main --framework=vue-vapor
+# dist/hero-main.vue-vapor.js
 bun tools/build.ts hero-main --framework=octane
 # dist/hero-main.octane.js
 bun tools/build.ts hero-main --framework=svelte
@@ -33,10 +40,10 @@ which is also Svelte's own spelling for a runes module, so a ported demo carries
 `app.svelte` and `main.svelte.ts`.
 
 There is no environment-variable switch for framework selection. Product
-builds declare it in `pocket.json`; low-level compiler work can still use a
-project config or one-command override.
+builds declare it in `pocket.app.json`; low-level compiler work can use a
+`--framework` override for one invocation.
 
-## Manifest selection
+## Contract selection
 
 ```json
 {
@@ -48,50 +55,75 @@ project config or one-command override.
 
 Use `"vue-vapor"` for the Vue adapter, `"octane"` for Octane and `"svelte"`
 for Svelte.
-`pocket check|compile|build --target …`
-resolves this value once and all framework/compiler/native stages consume the same plan.
-Do not also put `framework` in `pocket.config.ts` for a manifest build.
+**`pocket check` and `pocket compile` resolve the framework from `pocket.app.json`.**
+The compiler passes that selection through the resolved build plan. Animation
+keyframes and shorthand definitions belong beside it in `app.theme`.
 
-## Low-level project config
-
-`pocket.config.ts` is the low-level script default:
-
-```ts
-import { definePocketConfig } from "@pocketjs/framework/config";
-
-export default definePocketConfig({
-  framework: "solid",
-});
-```
-
-`framework` takes the same four build ids as the manifest.
-
-The direct framework/compiler/dev scripts read the config by default. Use
-`--framework=solid`, `--framework=vue-vapor`, `--framework=octane` or
-`--framework=svelte` to override it for one invocation. `--config=<path>` selects a different config
-file, and `--no-config` ignores config entirely.
-
-The same flag works through the dev and PSP entry points:
+The caller selects the host contract:
 
 ```sh
-bun tools/dev.ts --framework=vue-vapor hero-vue-vapor-main
+pocket compile --manifest pocket.app.json --target psp
+pocket compile --manifest pocket.app.json --target ./hosts/my-board/pocket.host.json
+pocket compile --manifest pocket.app.json
+```
+
+`--target` accepts a built-in host id or the path of a `pocket.host.json`
+file. `POCKET_TARGET` provides the default for that option. Without a
+target, the compiler searches upward from the app contract's directory for
+`pocket.host.config.ts` and uses its single host contract. A host config that
+lists several host contracts in `hosts: [...]` requires a host id.
+
+A program can declare its host contract without assigning a native build to
+PocketJS:
+
+```ts
+// pocket.host.config.ts
+import { defineHostConfig } from "@pocketjs/framework/host-config";
+
+export default defineHostConfig({ host: "./hosts/my-board/pocket.host.json" });
+```
+
+The host contract supplies display geometry, cadences and capabilities; the app
+contract supplies `app.tickHz`.
+**`pocket build` consumes the host config's `build` recipe** to build
+the native program. The recipe uses `cargo()`, `cmake()`, `make()` or
+`compilerOnly()` from `@pocketjs/framework/host-config`; application framework
+and theme settings stay in `pocket.app.json`.
+
+## Low-level compiler overrides
+
+Direct compiler and development scripts accept `--framework=solid`,
+`--framework=vue-vapor`, `--framework=octane` or `--framework=svelte` for a
+single invocation:
+
+```sh
+bun tools/build.ts hero-main --framework=vue-vapor
 bun tools/dev.ts --framework=octane hero-main
 bun tools/dev.ts --framework=svelte hero-main
-bun tools/psp.ts hero-vue-vapor --framework=vue-vapor --release
 ```
+
+These overrides support framework compiler work. Application builds from an
+app contract use `app.framework`.
 
 ## Framework app imports
 
-Apps import state and component lifecycle from the selected framework directly.
-PocketJS does not wrap `createSignal`, `ref`, `useState`, `$state`, `onMount`,
-`onMounted`, or `useEffect`.
+Ordinary apps import state and control-flow primitives from their framework.
+PocketJS runtime, host components and lifecycle APIs come from
+`@pocketjs/framework/*`. Solid/Vue component hooks use the framework's PocketJS
+lifecycle subpath. Compiled models have a separate
+[reactive import contract](/docs/typescript-support/#reactive-state-and-regions).
+Svelte state is the compiler's `$state`, `$derived` and `$effect` runes;
+component lifecycle (`onMount`, `onDestroy`) comes from `svelte`, and PocketJS
+lifecycle (`onFrame`, `onButtonPress`, `createSpriteAnimation`) from
+`@pocketjs/framework/svelte/lifecycle`.
 
 A Solid app:
 
 ```tsx
 import { mount, frameworkName } from "@pocketjs/framework/solid";
 import { View, Text, type NodeMirror } from "@pocketjs/framework/solid/components";
-import { createSignal, onMount, Show } from "solid-js";
+import { onMount } from "@pocketjs/framework/solid/lifecycle";
+import { createSignal, Show } from "solid-js";
 
 export default function App() {
   const [count, setCount] = createSignal(0);
@@ -142,8 +174,8 @@ The Svelte port writes the same tree as a `.svelte` component:
 </View>
 ```
 
-Its entry is an ordinary TypeScript module, because a manifest's `app.entry`
-takes `.ts`/`.tsx` only:
+Its entry is an ordinary TypeScript module, because the app contract's
+`app.entry` takes `.ts`/`.tsx` only:
 
 ```ts
 import { mount } from "@pocketjs/framework/svelte";
@@ -246,7 +278,7 @@ Authoring rules specific to Octane apps:
   multi-frame stall. The showcase demos put every continuous visual on a native
   channel instead: `<Sprite>` atlases for the hero/gallery/library spinners
   (`sprites.json`), a baked keyframe timeline for the music equalizer
-  (`apps/music/pocket.config.ts`), `animate()`/`jump()` for the stats bars and
+  (`apps/music/pocket.app.json`, `app.theme`), `animate()`/`jump()` for the stats bars and
   notification rows, and `setTextContent` for count-ups and percentages
   (`StatTiles`, `ProgressLine`).
 - **Frame counters that only time a phase live in refs**, committing state
@@ -278,9 +310,9 @@ Authoring rules specific to Svelte apps:
 - **Component files are `.svelte`, shared reactive state lives in `.svelte.ts`
   runes modules.** A runes module is one instance per program, so state in one
   outlives anything that remounts the tree.
-- **The entry is a `.ts` file that imports the component**, because a manifest's
-  `app.entry` accepts `.ts`/`.tsx` only. `mount(App)` takes the component
-  itself, never a thunk.
+- **The entry is a `.ts` file that imports the component**, because the app
+  contract's `app.entry` accepts `.ts`/`.tsx` only. `mount(App)` takes the
+  component itself, never a thunk.
 - **`class` stays full literals or ternaries of full literals**, as in the other
   frameworks. `class:` directives, interpolated class strings and the `clsx`
   object/array forms are **compile errors** — the class table is built at build
@@ -325,19 +357,14 @@ Authoring rules specific to Svelte apps:
   "svelte"`. Snippets live in the template, not in `<script>`, so a Solid table of
   component thunks becomes an `{#if}` ladder or a `{#key}` block. That remount is
   also how you restart a subtree's baked timelines.
-- **The same runes-and-components model has an ahead-of-time path.** Pocket
-  Vapor's Svelte front end (`vapor/compiler/svelte.ts`) compiles a `$state`/
-  `$derived` + `<row>` subset to C for the Game Boy Advance, Game Boy, NES,
-  ESP32 and Playdate, with no JS engine on the device: `bun run vapor:svelte`
-  builds the Todo in `vapor/examples/todo-svelte/`, and `vapor/DESIGN.md` §6.5
-  states the subset, the lowering and the parity claim against real Svelte.
 
 ## What stays shared
 
 All four frameworks use the same Tailwind-subset compiler, generated style
 table, font atlas baker, `.pak` asset container, host detection, button/focus
-input, overlay layer, animation API, and every native build and capture path a
-target registers in `contracts/spec/platforms.ts`. Switching frameworks changes
+input, overlay layer, animation API, and the native rendering and capture paths
+provided by the selected program. Host contracts declare software capabilities;
+`pocket.host.config.ts` declares the program build. Switching frameworks changes
 the JS component/reactivity layer and the renderer adapter.
 
 One exception: **touch under Octane is raw contacts only.** The Solid, Vue
