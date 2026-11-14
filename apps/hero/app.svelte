@@ -2,25 +2,17 @@
   import { onMount } from "svelte";
   import { frameworkName } from "@pocketjs/framework/svelte";
   import { animate } from "@pocketjs/framework/svelte/animation";
-  import { Image, Text, View, type NodeMirror } from "@pocketjs/framework/svelte/components";
-  import { createSpriteAnimation } from "@pocketjs/framework/svelte/lifecycle";
+  import { Image, Sprite, Text, View, type NodeMirror } from "@pocketjs/framework/svelte/components";
   import SvelteLogoScreen from "../shared/SvelteLogoScreen.svelte";
 
-  const SPINNER_FRAME_STEP = 3;
-  const SPINNER_FRAMES = [
-    "spinner-00.svg",
-    "spinner-01.svg",
-    "spinner-02.svg",
-    "spinner-03.svg",
-    "spinner-04.svg",
-    "spinner-05.svg",
-    "spinner-06.svg",
-    "spinner-07.svg",
-  ];
+  // The rate the host presents frames at; main.svelte.ts passes the bundle's
+  // tick rate, as the Solid entry does.
+  let { presentationHz = 60 }: { presentationHz?: number } = $props();
 
   let count = $state(0);
-  const spinner = createSpriteAnimation(SPINNER_FRAMES, { frameStep: SPINNER_FRAME_STEP });
   let underline: NodeMirror | undefined;
+  // The <Sprite> spinner rides the native sprite channel (the sprites.json atlas):
+  // the host advances its frames, so no JS runs per frame for it.
 
   onMount(() => {
     // Underline sweeps in once on mount — native tween, zero steady-state JS.
@@ -45,7 +37,7 @@
       </View>
     </View>
     <View class="flex-row gap-4">
-      {@render stat("FPS", "60", "text-lg text-emerald-600 font-bold")}
+      {@render stat("FPS", String(presentationHz), "text-lg text-emerald-600 font-bold")}
       {@render stat("NODES", "42", "text-lg text-blue-600 font-bold")}
       {@render stat("DRAWS", "9", "text-lg text-amber-600 font-bold")}
     </View>
@@ -54,8 +46,8 @@
   <View class="flex-col gap-2">
     <Text class="text-xs text-blue-600 tracking-wide">ONE RUST CORE - ONE SVELTE APP</Text>
     <View class="flex-row items-center justify-between">
-      <Text class="text-4xl text-slate-950 font-bold">Runes at 60 FPS.</Text>
-      <Image class="w-10 h-10" src={spinner.current} />
+      <Text class="text-4xl text-slate-950 font-bold">Runes at {presentationHz} FPS.</Text>
+      <Sprite class="w-10 h-10" sprite="spinner-atlas.svg" />
     </View>
     <View
       class="h-1 w-0 rounded-full shadow bg-gradient-to-r from-blue-500 to-cyan-500"

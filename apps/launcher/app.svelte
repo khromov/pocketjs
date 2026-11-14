@@ -229,10 +229,11 @@
           settle = clampSel(flowOrigin + Math.sign(pos - flowOrigin));
         }
         pos = null;
+        const wasSel = sel;
         sel = settle;
-        // sel may be unchanged (the effect will not re-run) — glide home
-        // from the released fraction regardless.
-        applyTweens(settle);
+        // If selection changed, the effect glides home. Otherwise it will not
+        // re-run, so the release path must issue the tweens explicitly.
+        if (wasSel === settle) applyTweens(settle);
       }
     });
     // CIRCLE confirms (the console's home convention — CROSS-as-confirm had
