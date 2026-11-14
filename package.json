@@ -28,6 +28,7 @@
     "contracts/spec",
     "contracts/generated",
     "hosts",
+    "!hosts/**/target",
     "programs/**/pocket.host.config.ts",
     "programs/*/pocket.host.json",
     "programs/web/**/*.js",
