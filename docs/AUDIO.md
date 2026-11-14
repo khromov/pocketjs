@@ -70,6 +70,7 @@ purpose — a bundle that plays anywhere plays everywhere.
 | web (`platforms/web/audio.js` + `audio-worklet.js`) | AudioWorklet ring on the render thread, main-thread credit mirror, gesture-deferred `AudioContext` | audible, ships with the dev host |
 | sim (`platforms/sim/audio.ts`) | virtual-clock sink, `audioFramesForTick` consumption, PCM FNV-1a + op/event log | deterministic tests (`tests/audio.test.ts`, `tests/audio-sim.test.ts`) |
 | psp (`platforms/psp/audio/src/streams.rs`, mounted by `programs/psp/src/service_bindings.rs` `register_audio`) | four rings at the source rate, one mixer thread at priority 16 on one normal 44.1 kHz hardware channel, integer upsample with linear interpolation, facts published as atomics and folded by `poll()` | capability advertised in `hosts/psp/pocket.host.json`; recorded through PPSSPP `DumpAudio`, no real-unit recording yet |
+| 3ds (`platforms/3ds/audio.c`, mounted by `products/3ds/src/qjs.c` `install_host` for a guest whose plan has `audio.pcm`) | one NDSP channel per stream, **channels 8–11** (`platforms/3ds/media.c` plays on channel 0), at the source rate with linear interpolation; a **16384-frame ring per stream in linear memory**, queued as wave buffers of at most 1024 frames that point into the ring without a copy; no audio thread: the main loop calls `pocket_3ds_audio_service()` once per presented frame to retire finished buffers and fold the facts `poll()` reports, so credit rises one finished buffer at a time; NDSP held from process start to exit outside capture builds | capability advertised in `hosts/3ds-dev/pocket.host.json`; needs `sdmc:/3ds/dspfirm.cdc`, without which the process boots without `globalThis.audio` and an audio guest records `audio-init`; capture builds never mount it; compiled for the host against a fake NDSP in `tests/3ds-audio.test.ts`, not recorded on a console (products/3ds/README.md, *Audio*) |
 | vita | not mounted — `engine/spec/src/lib.rs` `pub mod audio` carries the contract; the channel/ring/thread discipline to copy exists in `platforms/vita/audio/src/lib.rs` (built for the video plane) | seam documented, capability not advertised |
 | macos-widget / pocketbook | not mounted | capability not advertised |
 
@@ -103,8 +104,10 @@ passes that buffer to `writePcm` on every later play. A sound up to `AUDIO_RING_
 one write; a longer one is cut into 8192-frame chunks and fed by credit.
 
 **`poll()` is one queue across streams.** Both use one router that hands each event to the owner of
-its handle. `createWavPlayer` drains the same queue and drops events for other handles, so an app
-uses one or the other.
+its handle. `createWavPlayer` keeps a second router over every live WAV player
+(`framework/src/audio-api.ts`), so several players in one app each receive their own `credit`,
+`underrun` and `ended` events. Each router drops events whose handle it does not own, so an app uses
+`createWavPlayer` or the game2d players, not both.
 
 **`AUDIO_MAX_STREAMS` is 4.** Music takes one, a crossfade one more until the old track reaches gain 0,
 a sounding effect one. The bank releases a stream when its sound ends and defaults to three voices;
@@ -117,9 +120,12 @@ a fade moves in steps of that length.
 ## The demo (and the golden-safety property)
 
 `apps/music` streams a real WAV per track on hosts with the module — all
-four framework variants (solid / vue-vapor / octane / svelte) wire the same
+three framework variants (solid / vue-vapor / octane) wire the same
 `createWavPlayer`: load on select/skip, play/pause slaved to the UI state,
-one `pump()` per frame.
+one `pump()` per frame. The Svelte games `apps/wolfensvelte` and
+`apps/svelte-shooter` play their `audio:wav.*` effects and music through
+`createWavPlayer` from `@pocketjs/framework/svelte/audio`, three effect voices
+and one music stream.
 
 The **tick clock stays authoritative**: position, equalizer and track advance
 are the same frame counters with or without audio, and the player only

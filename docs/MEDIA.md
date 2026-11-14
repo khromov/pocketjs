@@ -74,11 +74,21 @@ stereo sample frame: left nibble in the low bits, right in the high bits.
 fixtures. Video and audio records carry absolute PTS; a new seek stream starts
 with parameter sets and an IDR frame.
 
-The 3DS worker owns sockets, MVD service calls, ADPCM expansion and NDSP.
-The renderer transfers at most one RGB565 frame into a PICA texture after the
-previous graphics frame retires. The UI does not wait for network reads or
+The 3DS worker owns sockets, MVD service calls, ADPCM expansion and NDSP
+channel 0. The renderer transfers at most one RGB565 frame into a PICA texture
+after the previous graphics frame retires. The UI does not wait for network reads or
 video decoding. GPU transfer, drawing, allocation and scheduling still take
 time; hardware measurements are required for a frame-rate claim.
+
+`play()` in `platforms/3ds/media.c` calls `ndspInit` when it starts a source
+and `ndspExit` when that source's session ends. **Outside capture builds, the
+app audio module (`platforms/3ds/audio.c`, channels 8–11) holds one NDSP
+reference for the life of the process**: `main()` takes it before
+`media_start()` creates the worker and drops it after `media_stop()` joins the
+worker. With that reference held, the worker's calls move libctru's reference
+count between 1 and 2 and never initialize or finalize NDSP. Neither module
+sets NDSP's output mode; `ndspInit` takes it from the console's sound setting.
+products/3ds/README.md, *Audio*, has the ordering.
 
 MVD video processing is available on New 3DS. The host requests CPU speedup,
 uses MVD for H.264 and color conversion, PICA for scaling, and NDSP for audio
