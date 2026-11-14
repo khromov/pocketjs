@@ -127,7 +127,7 @@ observable behavior share an id, and a different guarantee gets a new id.
 | `runtime.worker` | A second QuickJS runtime for `domains.worker`. |
 | `io.i2c`, `io.uart` | Worker node kinds. |
 | `net.http` | HTTP as a worker resource (`io.http`), under the limits of `contracts/spec/net.ts`. No UI realm has a network namespace. |
-| `display.viewport.live` | The logical viewport changes at run time. The host calls `resizeViewport`, which resizes the root layers; app code reads the size with `useViewport` (Solid) or `onViewport`. Console targets never provide it. |
+| `display.viewport.live` | The logical viewport changes at run time. The host calls `resizeViewport`, which resizes the root layers; app code reads the size with `useViewport` (Solid and Svelte) or `onViewport`. Console targets never provide it. |
 | `display.auxiliary` | One fixed-size auxiliary UI output presented beside the primary viewport by the same instance. |
 | `ui.physics` | 2D bodies stepped by the UI core: worlds, jelly bodies, colliders, zones and particle emitters (`contracts/spec/physics.ts`). |
 | `ui.compositor-surfaces` | A System UI can place installed applications into native compositor surfaces. |

@@ -9,17 +9,17 @@ Framework-internal and tests/debug helpers are not exhaustive here. For conceptu
 | Import path | Exports |
 | --- | --- |
 | `@pocketjs/framework` | `mount`, `render`, host/runtime helpers, types |
-| `@pocketjs/framework/components` | `View`, `Text`, `Image`, `Sprite`, `CompositorSurface`, `Screen`, `Focusable`, `FocusScope`, `FocusGrid`, `ActionHandler`, `Portal`, `AuxiliarySurface`, `AuxiliaryPortal`, `Modal`, `ActionBar`, `Named`, `Grid`, `Lazy`, `Gallery`, `DeepZoom`, `useViewport` (Solid) |
+| `@pocketjs/framework/components` | `View`, `Text`, `Image`, `Sprite`, `CompositorSurface`, `Screen`, `Focusable`, `FocusScope`, `FocusGrid`, `ActionHandler`, `AxisHandler` and `MotionHandler` (Solid, Vue Vapor and Svelte), `Portal`, `AuxiliarySurface`, `AuxiliaryPortal`, `Modal`, `ActionBar`, `Named`, `Grid`, `Lazy`, `Gallery`, `DeepZoom` (Solid), `useViewport` (Solid and Svelte) |
 | `solid-js` | `createSignal`, `createEffect`, `createMemo`, `onMount`, `onCleanup`, `batch`, `untrack`, `Show`, `For`, `Index`, `Switch`, `Match` |
 | `vue` | `defineComponent`, `ref`, `computed`, `watchEffect`, `onMounted`, `onScopeDispose` |
 | `octane` | `useState`, `useEffect`, `useMemo`, `useRef`, `useLayoutEffect`, `useEffectEvent` |
 | `svelte` | `onMount`, `onDestroy`, `getContext`, `setContext`, `tick`, `flushSync` (`$state`, `$derived`, `$effect` are compiler runes) |
 | `@pocketjs/framework/animation` | `animate`, `spring`, `jump`, `cancelAnim`, `animationClass` |
 | `@pocketjs/framework/physics` | `createWorld`, `hasPhysics`, `World`, `Body`, `Collider`, `Zone`, `Emitter` and their option types — see [Physics](/docs/physics/) |
-| `@pocketjs/framework/lifecycle` | `onFrame`, `onButtonPress`, `analogX`, `analogY`, `analogRaw`, `createSpriteAnimation`, `pushButtonHandlerBlock` (Octane builds: `useFrame`, `useButtonPress`, `useSpriteAnimation`) |
-| `@pocketjs/framework/input` | `BTN`, `touches`, `auxiliaryTouches`, `onTextEvent`, `hasTextInput`, `focusNode`, `getFocused`, `pressNode`, `setActiveNode`, `pushFocusScope`, `pushFocusGrid`, `pushFocusController`, `hitFocusable`, `hitNode`, `enableCursor`, `cursorX`, `cursorY` |
-| `@pocketjs/framework/gesture` | `createGesture`, `attachGesture`, `pushTouchBlock`, gesture types (Solid and Vue Vapor) |
-| `@pocketjs/framework/kinetics` | `createScroller`, `bindDpadScroll`, `Scroller` / `ScrollerOptions` / `ScrollerState` types (Solid and Vue Vapor) |
+| `@pocketjs/framework/lifecycle` | `onFrame`, `onButtonPress`, `onAxisDelta` and `onMotion` (Solid, Vue Vapor and Svelte), `analogX`, `analogY`, `analogRaw`, `createSpriteAnimation`, `pushButtonHandlerBlock` (Octane builds: `useFrame`, `useButtonPress`, `useSpriteAnimation`) |
+| `@pocketjs/framework/input` | `BTN`, `touches`, `auxiliaryTouches`, `onTextEvent`, `hasTextInput`, `focusNode`, `getFocused`, `pressNode`, `setActiveNode`, `pushFocusScope`, `pushFocusGrid`, `pushFocusController`, `hitFocusable`, `hitNode`, `enableCursor`, `cursorX`, `cursorY`, `RelativeAxis`, `MotionQuality` (Vue Vapor and Svelte builds add `onAxisDelta`, `onMotion`) |
+| `@pocketjs/framework/gesture` | `createGesture`, `attachGesture`, `pushTouchBlock`, gesture types (Solid, Vue Vapor and Svelte) |
+| `@pocketjs/framework/kinetics` | `createScroller`, `bindDpadScroll`, `Scroller` / `ScrollerOptions` / `ScrollerState` types (Solid, Vue Vapor and Svelte) |
 | `@pocketjs/framework/osk` | `Osk`, `TextField`, `createOsk`, `OSK_H`, `OSK_LAYERS`, `OSK_LAYOUTS`, `oskPanelHeight`, `resetPanelMemory` (Solid) |
 | `@pocketjs/framework/virtual-list` | `VirtualList`, `VirtualListProps`, `VirtualListHandle` (Solid) |
 | `@pocketjs/framework/display` | `auxiliaryViewport`, `hasAuxiliarySurface` |
@@ -449,6 +449,29 @@ The size changes only on targets with `display.viewport.live` (windows and
 widgets). An app that declares the capability and a `dynamic` viewport variant
 gets every window size inside the declared `min`…`max` range.
 
+### `useViewport` (Svelte)
+
+```ts
+interface Viewport { readonly current: ViewportSize }
+function useViewport(): Viewport
+```
+
+The same size as Svelte state, from `@pocketjs/framework/svelte/components`.
+The first value and the same-size rule match the Solid hook. Reading
+`current` in a template or `$derived` subscribes. Call it during component
+initialization; its listener is removed when the component is destroyed.
+`resizeViewport` calls Svelte's `flushSync()` after the
+[`onViewport`](#host-helpers) listeners run, so the new size is committed
+when the call returns.
+
+```svelte
+<script lang="ts">
+  import { useViewport } from "@pocketjs/framework/svelte/components";
+  const viewport = useViewport();
+  const columns = $derived(Math.max(1, Math.min(4, Math.floor((viewport.current.w - 48 + 16) / (240 + 16)))));
+</script>
+```
+
 ## `solid-js`
 
 Import Solid's reactive primitives and control-flow components directly from
@@ -518,6 +541,14 @@ Svelte apps write `.svelte` components and use the compiler's runes (`$state`,
 
 `createSpriteAnimation` returns `{ current }` in Svelte builds, matching the
 `svelte/reactivity` convention: read it as `spinner.current`.
+
+Input comes from `@pocketjs/framework/svelte/lifecycle` (`onFrame`,
+`onButtonPress`, `onAxisDelta`, `onMotion`, the stick readers),
+`@pocketjs/framework/svelte/input` (everything in
+[`@pocketjs/framework/input`](#pocketjsframeworkinput) plus `onAxisDelta` and
+`onMotion`) and the `ActionHandler`, `AxisHandler` and `MotionHandler`
+components. The viewport comes from [`useViewport`](#useviewport-svelte) and
+`onViewport`.
 
 The authoring rules Svelte adds — class literals only, style objects as a
 component prop, `onPress` as the one event, and the refused constructs — are in
@@ -606,8 +637,8 @@ without a plan reads `composited`.
 
 Component-scoped per-frame hooks. Registrations clean up with the selected
 framework owner (`onCleanup` in Solid, `onScopeDispose` in Vue Vapor, effect
-cleanup in Octane). In Octane builds these exports are the use-prefixed hooks
-`useFrame`, `useButtonPress`, and `useSpriteAnimation` (see
+cleanup in Octane, `onDestroy` in Svelte). In Octane builds these exports are
+the use-prefixed hooks `useFrame`, `useButtonPress`, and `useSpriteAnimation` (see
 [`octane`](#octane) above); the signatures below are otherwise identical. See
 [Reactivity](/docs/reactivity/) and [Input & focus](/docs/input-focus/).
 

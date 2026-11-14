@@ -114,8 +114,8 @@ lifecycle subpath. Compiled models have a separate
 [reactive import contract](/docs/typescript-support/#reactive-state-and-regions).
 Svelte state is the compiler's `$state`, `$derived` and `$effect` runes;
 component lifecycle (`onMount`, `onDestroy`) comes from `svelte`, and PocketJS
-lifecycle (`onFrame`, `onButtonPress`, `createSpriteAnimation`) from
-`@pocketjs/framework/svelte/lifecycle`.
+lifecycle (`onFrame`, `onButtonPress`, `onAxisDelta`, `onMotion`,
+`createSpriteAnimation`) from `@pocketjs/framework/svelte/lifecycle`.
 
 A Solid app:
 
@@ -323,8 +323,29 @@ Authoring rules specific to Svelte apps:
   `style="…"` is refused at compile time. `style:` directives are refused too.
 - **`<style>` blocks are refused.** Styling is the Tailwind subset.
 - **`onPress` is the only event.** Host elements expose the native press
-  channel; everything else about input comes from `onFrame`/`onButtonPress` in
-  `@pocketjs/framework/svelte/lifecycle`.
+  channel. Everything else about input comes from the input APIs the other
+  frameworks use: `onFrame`, `onButtonPress`, `onAxisDelta`, `onMotion` and the
+  stick readers in `@pocketjs/framework/svelte/lifecycle`; `BTN`, touches, focus,
+  `RelativeAxis` and `MotionQuality` in `@pocketjs/framework/svelte/input`,
+  which re-exports `onAxisDelta` and `onMotion`; and `ActionHandler`,
+  `AxisHandler` and `MotionHandler` in `@pocketjs/framework/svelte/components`.
+  `onButtonPress`, `onAxisDelta` and `onMotion` take an optional placement node
+  as their fourth argument, end with the component that registered them, and
+  return a disposer that ends them before that.
+- **Placed handlers run in document order.** `ActionHandler`, `AxisHandler` and
+  `MotionHandler` render a hidden `<view>` marker (`display: none`) and register
+  from an `{@attach}` on it; the marker's place in the tree sets when the
+  handler runs in the frame's press queue, as the comment markers of Solid and
+  Vue do. `button`, `latched` and `allowWhenBlocked` (`ActionHandler`), `axis`
+  (`AxisHandler`), and `value` and `minQuality` (`MotionHandler`) are read once,
+  at registration; `active` and the callback are read on every frame.
+- **The viewport is Svelte state.** `useViewport()` from
+  `@pocketjs/framework/svelte/components` returns `{ current: { w, h } }`; read
+  `viewport.current.w` in a template or `$derived`. Call it during component
+  initialization; its listener is removed when the component is destroyed.
+  `onViewport` from `@pocketjs/framework/svelte` is the framework-neutral
+  listener. `resizeViewport` calls `flushSync()` after the listeners run, so
+  the new size is in the tree before the host draws.
 - **`nodeRef` hands you the `NodeMirror`** for `animate()`, `jump()` and
   `setTextContent()`. `{@attach}` and `use:` receive the same node.
 - **`svelte/motion`, `svelte/transition` and `svelte/animate` are refused**:

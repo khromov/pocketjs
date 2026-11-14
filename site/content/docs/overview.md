@@ -18,9 +18,10 @@ the two paths. [TypeScript support](/docs/typescript-support/) compares their
 source-language rules, including the separate view and compiled model
 subsets. The framework adapters below belong to the guest path.
 
-If you know Solid, Vue, or React, you know most of PocketJS. The primitives are
-`View`, `Text`, and `Image`; state comes from the native framework package
-(`solid-js`, `vue`, or `octane`); layout and color come from class strings like
+If you know Solid, Vue, React or Svelte, you know most of PocketJS. The
+primitives are `View`, `Text`, and `Image`; state comes from the native
+framework package (`solid-js`, `vue` or `octane`) or from Svelte's runes
+(`$state`, `$derived`); layout and color come from class strings like
 `flex-col items-center gap-4 bg-slate-50`. What is different is what happens
 underneath: there is no browser DOM and no runtime CSS.
 

@@ -107,8 +107,9 @@ compiler runs.
 
 ## Write your first component
 
-A component returns JSX. You lay out with `View`, draw text with `Text`, and
-style with `class` — a **build-time subset of Tailwind**, not runtime CSS.
+A component returns JSX, or in Svelte a `.svelte` template. You lay out with
+`View`, draw text with `Text`, and style with `class` — a **build-time subset
+of Tailwind**, not runtime CSS.
 State comes directly from the selected framework: `createSignal` in Solid,
 `ref` in Vue Vapor, `useState` in Octane, `$state` in Svelte.
 
@@ -241,11 +242,12 @@ What's happening:
 - **`focusable`** opts the `View` into d-pad focus, and **`onPress`** fires when
   the focused node is confirmed (the Circle button on a PSP). Focus and input
   are covered in [Input & focus](/docs/input-focus/).
-- **`{count()}` / `{count.value}` / `` {`…${count}`} ``** is a reactive read.
-  When the setter or ref
-  write runs, only that `Text` updates — no re-render of the whole native tree.
-  (In Octane, a text run that mixes static and dynamic segments is written as
-  one template literal.) More in [Reactivity](/docs/reactivity/).
+- **`{count()}` / `{count.value}` / `` {`…${count}`} `` / `{count}`** is a
+  reactive read in Solid, Vue Vapor, Octane and Svelte. When the setter, ref
+  write or `$state` assignment runs, only that `Text` updates — no re-render of
+  the whole native tree. (In Octane, a text run that mixes static and dynamic
+  segments is written as one template literal.) More in
+  [Reactivity](/docs/reactivity/).
 
 ## The mount entry
 
