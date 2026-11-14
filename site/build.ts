@@ -321,11 +321,28 @@ type SpriteMeta = Record<string, { cols: number; rows: number; frames: number; s
 type DemoVariant = { framework: "solid" | "vue-vapor" | "octane" | "svelte"; source: string; spriteMeta?: SpriteMeta };
 type DemoEntry = { name: string; title: string; variants: DemoVariant[] };
 
+/**
+ * The Svelte twins mount apps/shared/SvelteLogoScreen.svelte, which draws on
+ * the 3DS bottom screen and renders nothing on a host without an auxiliary
+ * surface. The Playground host has none, so its single-file source drops the
+ * import and the element.
+ */
+function withoutSvelteLogoScreen(name: string, source: string): string {
+  const importLine = /^[ \t]*import SvelteLogoScreen from "\.\.\/shared\/SvelteLogoScreen\.svelte";\n/m;
+  if (!importLine.test(source)) return source;
+  const element = /^<SvelteLogoScreen\b[^>]*\/>\n?/m;
+  if (!element.test(source)) {
+    throw new Error(`${name}/app.svelte imports SvelteLogoScreen but has no top-level <SvelteLogoScreen />`);
+  }
+  return source.replace(importLine, "").replace(element, "");
+}
+
 function inlinePlaygroundImports(
   name: string,
   source: string,
   framework: DemoVariant["framework"],
 ): string | null {
+  if (framework === "svelte") source = withoutSvelteLogoScreen(name, source);
   if (name === "launcher") {
     const registryPath = ROOT + "apps/launcher/registry.generated.ts";
     const registrySource = readFileSync(registryPath, "utf8");

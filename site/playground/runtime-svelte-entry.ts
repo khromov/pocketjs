@@ -5,6 +5,7 @@
 export {
   frameworkName,
   mount,
+  onViewport,
   registerTexture,
   render,
 } from "../../framework/src/index-svelte.ts";
@@ -18,12 +19,15 @@ export {
   FocusScope,
   FocusGrid,
   ActionHandler,
+  AxisHandler,
+  MotionHandler,
   Portal,
   Modal,
   ActionBar,
   Grid,
   Lazy,
   Gallery,
+  useViewport,
 } from "../../framework/src/components-svelte.ts";
 export {
   animate,
@@ -35,8 +39,14 @@ export {
 export {
   onFrame,
   onButtonPress,
+  onAxisDelta,
+  onMotion,
   createSpriteAnimation,
   pushButtonHandlerBlock,
+  analogX,
+  analogY,
+  rightAnalogX,
+  rightAnalogY,
 } from "../../framework/src/lifecycle-svelte.ts";
 export {
   BTN,
@@ -46,6 +56,8 @@ export {
   pushFocusGrid,
   pushFocusScope,
   touches,
+  RelativeAxis,
+  MotionQuality,
 } from "../../framework/src/input-api.ts";
 export { createWavPlayer } from "../../framework/src/audio-api.ts";
 export { TICKS_PER_SECOND, ticksPerFrame } from "../../framework/src/clock.ts";
