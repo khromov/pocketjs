@@ -11,7 +11,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { BTN } from "../contracts/spec/spec.ts";
-import { launcherExcludes, prepareIsolatedLauncherSource, PSP_STANDALONE_OUTPUTS, scanDisplayRegistry, scanRegistry, withLauncherSourceLock } from "../tools/launcher.ts";
+import { LAUNCHER_LOCK_HOLDER_ENV, launcherExcludes, prepareIsolatedLauncherSource, PSP_STANDALONE_OUTPUTS, scanDisplayRegistry, scanRegistry, withLauncherSourceLock } from "../tools/launcher.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
 import { bootLauncherWorld, type LauncherWorld } from "../programs/sim/launcher.ts";
 import { bootWorld, treeHasText } from "../programs/sim/sim.ts";
@@ -114,6 +114,25 @@ describe("launcher registry admission", () => {
     ]);
     expect(maxActive).toBe(1);
   });
+
+  test("a direct child the holder names runs under the holder's launcher lock", async () => {
+    const script = `
+      import { withLauncherSourceLock } from ${JSON.stringify(join(repository, "tools/launcher.ts"))};
+      await withLauncherSourceLock(async () => console.log("child ran"));
+    `;
+    const output = await withLauncherSourceLock(async () => {
+      const child = Bun.spawn([process.execPath, "-e", script], {
+        cwd: repository,
+        env: { ...process.env, [LAUNCHER_LOCK_HOLDER_ENV]: String(process.pid) },
+        stdout: "pipe",
+      });
+      const timer = setTimeout(() => child.kill(), 20_000);
+      const text = await new Response(child.stdout).text();
+      clearTimeout(timer);
+      return { text, code: await child.exited };
+    });
+    expect(output).toEqual({ text: "child ran\n", code: 0 });
+  }, 30_000);
 
   test("never writes generated sources for non-scan excludes or unsupported targets", () => {
     const registrySource = join(

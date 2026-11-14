@@ -8,10 +8,12 @@
 // has no framework override, so a demo's Svelte twin entry (main.svelte.ts) is
 // invisible to it: the manifest says framework=solid and entry=main.tsx. This
 // script points those manifests at their Svelte entries for the pack step,
-// without app.aot and app.model (they select the Solid compile), and writes the
-// original bytes back in a finally block and on SIGINT/SIGTERM. Every app with
-// no Svelte entry is excluded, and so are the demos in tools/launcher.ts's
-// PSP_STANDALONE_OUTPUTS, which ship as their own EBOOTs.
+// without app.aot and app.model (they select the Solid compile), through
+// tools/manifest-rewrites.ts: under the checkout's manifest lock, journaled,
+// and restored when the pack step ends, fails or is interrupted. Every app
+// with no Svelte entry is excluded, and so are the demos in
+// tools/launcher.ts's PSP_STANDALONE_OUTPUTS, which ship as their own EBOOTs.
+// The launcher lock is held from the pack step to the native build.
 //
 // The steps are the ones `tools/launcher.ts build --target psp` runs, with two
 // changes after its `pack` step:
@@ -32,15 +34,18 @@
 // --force is required: needsLauncherCompile() and renderCovers() in
 // tools/launcher.ts reuse an existing dist/<output>.js, so without it the pack
 // step packages the previously built Solid bundle under the Svelte plan and
-// the EBOOT claims Svelte and runs Solid.
+// the EBOOT claims Svelte and runs Solid. For the same reason the Svelte
+// files a flipped twin leaves under its Solid output name (twinOutputs) are
+// removed when the build ends, and the next Solid build compiles them again.
 
 import { $ } from "bun";
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { bakeSvg } from "../framework/compiler/bake-svg.ts";
-import { PSP_STANDALONE_OUTPUTS } from "./launcher.ts";
+import { LAUNCHER_LOCK_HOLDER_ENV, PSP_STANDALONE_OUTPUTS, withLauncherSourceLock } from "./launcher.ts";
+import { withManifestRewrites } from "./manifest-rewrites.ts";
 import { encodePNG } from "../tests/png.ts";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -150,22 +155,19 @@ function logoPlate(width: number, height: number, logo: number): Buffer {
   return encodePNG(out, width, height);
 }
 
-// The flipped manifests are committed files; every one is written back with
-// its original bytes when the pack step ends, fails, or is interrupted.
-const backups = new Map<string, Buffer>();
-function restore(): void {
-  for (const [path, original] of backups) writeFileSync(path, original);
-  if (backups.size > 0) console.log(`psp-svelte: restored ${backups.size} file(s)`);
-  backups.clear();
-}
-function backup(path: string): void {
-  if (!backups.has(path) && existsSync(path)) backups.set(path, readFileSync(path));
-}
-for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
-  process.on(signal, () => {
-    restore();
-    process.exit(1);
-  });
+/** The files a flipped twin's Svelte compile leaves under its Solid output
+ *  name: dist/<output>.{js,worker.js,pak,pocket,styles.ts} and its launcher
+ *  covers. A
+ *  later `tools/launcher.ts build` without --force, or `tools/psp.ts <app>
+ *  --skip-build`, would reuse them under the restored Solid manifest, so they
+ *  go once the EBOOT is built, or when the build fails or is interrupted. */
+const twinOutputs = flip.flatMap((app) => [
+  ...[".js", ".worker.js", ".pak", ".pocket", ".styles.ts"].map((ext) => join(DIST, `${app.output}${ext}`)),
+  ...["png", "placeholder"].map((ext) => join(APPS, `launcher/covers/cover-${app.output}.${ext}`)),
+  join(APPS, `launcher/covers/refl-${app.output}.png`),
+]);
+function dropTwinOutputs(): void {
+  for (const file of twinOutputs) rmSync(file, { force: true });
 }
 
 /** Replace the packed Solid launcher with one that mounts app.svelte over the
@@ -218,7 +220,8 @@ console.log(
     ` (${excluded.filter((a) => PSP_STANDALONE_OUTPUTS.has(a.output)).length} standalone, the rest non-Svelte)`,
 );
 
-const env = { ...process.env };
+const env: Record<string, string | undefined> = { ...process.env };
+const SIGNALS = ["SIGINT", "SIGTERM", "SIGHUP"] as const;
 // The deck is title-sorted; lead with the games when they are present.
 const lead = ["svelte-shooter-main", "svelte-snake-main"].filter((output) =>
   demos.some((app) => app.output === output)
@@ -228,45 +231,58 @@ if (lead.length > 0) {
   console.log(`psp-svelte: deck order -> ${lead.join(", ")} first`);
 }
 
-try {
-  for (const app of flip) {
-    const path = manifestPath(app.name);
-    backup(path);
-    const next = JSON.parse(readFileSync(path, "utf8")) as Manifest;
-    next.app.framework = "svelte";
-    next.app.entry = app.variant!;
-    delete next.app.aot;
-    delete next.app.model;
-    writeFileSync(path, JSON.stringify(next, null, 2) + "\n");
-    console.log(`  svelte: ${app.output} <- ${app.variant}`);
+// The launcher lock is held from the pack step to the native build, so a
+// concurrent `tools/launcher.ts` run cannot replace dist/packages, the
+// registry or the isolated source in between; the pack child runs under this
+// hold (LAUNCHER_LOCK_HOLDER_ENV). The flipped manifests are rewritten through
+// tools/manifest-rewrites.ts and restored when the pack step ends.
+await withLauncherSourceLock(async () => {
+  env[LAUNCHER_LOCK_HOLDER_ENV] = String(process.pid);
+  const interrupted = (): void => {
+    dropTwinOutputs();
+    process.exit(1);
+  };
+  try {
+    await withManifestRewrites("psp-svelte", async (rewrites) => {
+      for (const app of flip) {
+        const path = manifestPath(app.name);
+        const next = JSON.parse(readFileSync(path, "utf8")) as Manifest;
+        next.app.framework = "svelte";
+        next.app.entry = app.variant!;
+        delete next.app.aot;
+        delete next.app.model;
+        rewrites.rewrite(path, JSON.stringify(next, null, 2) + "\n");
+        console.log(`  svelte: ${app.output} <- ${app.variant}`);
+      }
+      const excludeArgs = excluded.flatMap((a) => ["--exclude", a.output]);
+      await $`bun tools/launcher.ts pack --target psp --force ${excludeArgs}`.cwd(ROOT).env(env);
+    }, { onInterrupt: dropTwinOutputs });
+    for (const signal of SIGNALS) process.on(signal, interrupted);
+
+    if (!existsSync(REGISTRY_TSV) || !existsSync(LAUNCHER_POCKET)) {
+      throw new Error("psp-svelte: the pack step left no launcher registry or launcher package");
+    }
+    const gallery = readFileSync(REGISTRY_TSV, "utf8")
+      .split(/\r?\n/)
+      .filter((line) => line.trim())
+      .map((line) => line.split("\t")[0]!);
+    console.log(`psp-svelte: gallery (${gallery.length}): ${gallery.join(", ")}`);
+    const missing = demos.filter((a) => !gallery.includes(a.output));
+    if (missing.length > 0) {
+      console.warn(`psp-svelte: not admitted for psp, so not in the gallery: ${missing.map((a) => a.output).join(", ")}`);
+    }
+
+    if (svelteShell) await packSvelteShell();
+    writeXmbMetadata();
+    await $`bun tools/pocket.ts build --target psp --pocket ${LAUNCHER_POCKET} --out ${NATIVE_OUT} -- --launcher-registry=${REGISTRY_TSV}`
+      .cwd(ROOT)
+      .env(env);
+    if (!existsSync(BUILT_EBOOT)) throw new Error(`psp-svelte: no EBOOT at ${BUILT_EBOOT}`);
+  } finally {
+    for (const signal of SIGNALS) process.off(signal, interrupted);
+    dropTwinOutputs();
   }
-
-  const excludeArgs = excluded.flatMap((a) => ["--exclude", a.output]);
-  await $`bun tools/launcher.ts pack --target psp --force ${excludeArgs}`.cwd(ROOT).env(env);
-} finally {
-  restore();
-}
-
-if (!existsSync(REGISTRY_TSV) || !existsSync(LAUNCHER_POCKET)) {
-  throw new Error("psp-svelte: the pack step left no launcher registry or launcher package");
-}
-const gallery = readFileSync(REGISTRY_TSV, "utf8")
-  .split(/\r?\n/)
-  .filter((line) => line.trim())
-  .map((line) => line.split("\t")[0]!);
-console.log(`psp-svelte: gallery (${gallery.length}): ${gallery.join(", ")}`);
-const missing = demos.filter((a) => !gallery.includes(a.output));
-if (missing.length > 0) {
-  console.warn(`psp-svelte: not admitted for psp, so not in the gallery: ${missing.map((a) => a.output).join(", ")}`);
-}
-
-if (svelteShell) await packSvelteShell();
-writeXmbMetadata();
-await $`bun tools/pocket.ts build --target psp --pocket ${LAUNCHER_POCKET} --out ${NATIVE_OUT} -- --launcher-registry=${REGISTRY_TSV}`
-  .cwd(ROOT)
-  .env(env);
-
-if (!existsSync(BUILT_EBOOT)) throw new Error(`psp-svelte: no EBOOT at ${BUILT_EBOOT}`);
+});
 const bytes = Bun.file(BUILT_EBOOT).size;
 console.log(`\npsp-svelte: EBOOT.PBP ${(bytes / 1048576).toFixed(2)} MiB (${relative(ROOT, BUILT_EBOOT)})`);
 

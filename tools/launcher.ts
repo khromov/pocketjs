@@ -25,6 +25,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { hostname } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
 import { readPocketManifest } from "../framework/src/manifest/load.ts";
@@ -62,6 +63,26 @@ const LAUNCHER_APP = join(LAUNCHER_DIR, "app.tsx");
 const LAUNCHER_PSP_DIR = join(LAUNCHER_DIR, "psp");
 
 /**
+ * A process that holds the launcher lock and runs `tools/launcher.ts` under
+ * that hold (tools/psp-svelte.ts, from its pack step to its native build) sets
+ * this to its own pid in the child's environment.
+ */
+export const LAUNCHER_LOCK_HOLDER_ENV = "POCKETJS_LAUNCHER_LOCK_HOLDER";
+
+/** True in a direct child of the process that holds `lock` and named itself in
+ *  LAUNCHER_LOCK_HOLDER_ENV: taking the lock again would wait on the parent. */
+function lockHeldByParent(lock: string): boolean {
+  const holder = Number(process.env[LAUNCHER_LOCK_HOLDER_ENV]);
+  if (!Number.isInteger(holder) || holder <= 0 || holder !== process.ppid) return false;
+  try {
+    const owner = JSON.parse(readFileSync(join(lock, "owner.json"), "utf8")) as { pid?: unknown; hostname?: unknown };
+    return owner.pid === holder && owner.hostname === hostname();
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Serialize one checkout's committed scan output, deterministic cover renders,
  * and target artifact directories. Build/pack never swap the shared generated
  * sources: each target compiles its own dist/.launcher-source instead.
@@ -85,12 +106,10 @@ export async function withLauncherSourceLock<T>(
       // A normal checkout has a .git directory rather than a gitdir marker.
     }
   }
+  const lock = join(checkoutMetadata, "pocketjs-locks", "generated-source.lock");
+  if (lockHeldByParent(lock)) return await operation();
   return await withArtifactLock(
-    join(
-      checkoutMetadata,
-      "pocketjs-locks",
-      "generated-source.lock",
-    ),
+    lock,
     operation,
     {
       timeoutMs: 60 * 60_000,
