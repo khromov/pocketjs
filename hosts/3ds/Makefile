@@ -25,6 +25,8 @@
 #   POCKETJS_SMDH_AUTHOR
 #   POCKETJS_SMDH_DESC
 #   POCKETJS_SIM_HZ          presentation rate, a divisor of 60; empty = 60
+#   POCKETJS_ICON            the app's 48x48 SMDH icon; empty uses icon.png here
+#   POCKETJS_ICON_SMALL      the app's 24x24 SMDH icon; empty reduces POCKETJS_ICON
 #   POCKETJS_CAPTURE         "1" builds the deterministic e2e binary
 #   POCKETJS_CAPTURE_INPUT   baked input tape, "frame:mask,frame:mask"
 #   POCKETJS_CAPTURE_TOUCH   baked touch tape, "frame:id,x,y@frame:-"
@@ -49,10 +51,10 @@ BUILD := $(POCKETJS_BUILD_DIR)
 OUT := $(POCKETJS_OUT_3DSX)
 # 3dsxtool reads the recovery guest out of a RomFS directory.
 ROMFS := $(BUILD)/romfs
-ICON ?= $(CURDIR)/icon.png
+ICON ?= $(if $(POCKETJS_ICON),$(POCKETJS_ICON),$(CURDIR)/icon.png)
 # Custom large icons keep smdhtool's automatic reduction unless their caller
 # also supplies SMALL_ICON. The host default has a separate optical drawing.
-SMALL_ICON ?= $(if $(filter $(CURDIR)/icon.png,$(ICON)),$(CURDIR)/icon-small.png,)
+SMALL_ICON ?= $(if $(POCKETJS_ICON_SMALL),$(POCKETJS_ICON_SMALL),$(if $(filter $(CURDIR)/icon.png,$(ICON)),$(CURDIR)/icon-small.png,))
 CIA := $(POCKETJS_OUT_CIA)
 RSF := $(CURDIR)/app.rsf
 
@@ -179,15 +181,17 @@ $(ROMFS)/app.pocket: $(POCKETJS_APP_POCKET) romfs-inputs $(ROMFS_LAYOUT_STAMP) |
 	@rm -f "$@.new"
 
 # 3dsxtool refuses to embed a RomFS without SMDH metadata, so one is always
-# built, from the app's own strings over the host's icon. The strings affect
-# the artifact but are not files, so a content stamp invalidates the SMDH when
-# a manifest title/id changes. Recipes expand the environment in the shell,
+# built, from the app's own strings over its icon (the host's when it ships
+# none). The strings affect the artifact but are not files, so a content stamp
+# invalidates the SMDH when a manifest title/id changes. The icon paths are in
+# the stamp too: switching back to the host icon, an older file, would not
+# rebuild the SMDH by mtime alone. Recipes expand the environment in the shell,
 # inside quotes: manifest text never becomes shell syntax through make.
 SMDH_STAMP := $(BUILD)/smdh.stamp
 .PHONY: $(SMDH_STAMP).probe
 $(SMDH_STAMP).probe: | $(BUILD)
-	@printf '%s\n%s\n%s\n' "$$POCKETJS_SMDH_TITLE" "$$POCKETJS_SMDH_DESC" \
-	  "$$POCKETJS_SMDH_AUTHOR" > $(SMDH_STAMP).new
+	@printf '%s\n%s\n%s\n%s\n%s\n' "$$POCKETJS_SMDH_TITLE" "$$POCKETJS_SMDH_DESC" \
+	  "$$POCKETJS_SMDH_AUTHOR" "$(ICON)" "$(SMALL_ICON)" > $(SMDH_STAMP).new
 	@cmp -s $(SMDH_STAMP).new $(SMDH_STAMP) || mv $(SMDH_STAMP).new $(SMDH_STAMP)
 	@rm -f $(SMDH_STAMP).new
 $(SMDH_STAMP): $(SMDH_STAMP).probe ;

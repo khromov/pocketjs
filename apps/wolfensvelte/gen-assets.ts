@@ -471,6 +471,13 @@ async function main(): Promise<void> {
   const pic = resize(title, 480, 300);
   writeFileSync(join(psp, "pic1.png"), encodePng(crop(pic, 0, 14, 480, 272)));
 
+  // -- 3DS HOME Menu icon (tools/3ds.ts packs 3ds/icon.png into the SMDH) -------
+  // 48x48: B.J. from the title screen, an 80 px square at (14, 62) scaled by area
+  // averaging. The wordmark is too wide to survive a square tile this small.
+  const threeDs = join(HERE, "3ds");
+  mkdirSync(threeDs, { recursive: true });
+  writeFileSync(join(threeDs, "icon.png"), encodePng(resize(crop(title, 14, 62, 80, 80), 48, 48)));
+
   // -- sounds -------------------------------------------------------------------
   // Every audio blob is tagged with the capability it needs, so a plan-driven
   // build for a target without an audio module (the 3DS) leaves them out.

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { POCKET_TARGETS } from "../contracts/spec/platforms.ts";
 import { POCKET_PACKAGE_TARGET_BYTES } from "../contracts/spec/pocket-package.ts";
@@ -21,6 +22,8 @@ import {
   THREE_DS_VIEWPORT,
 } from "../tools/3ds-profile.ts";
 import {
+  HOME_MENU_ICON_SIZE,
+  HOME_MENU_SMALL_ICON_SIZE,
   MAKEROM_REVISION,
   THREE_DS_CONTAINER_IMAGE,
   captureDefines,
@@ -28,8 +31,10 @@ import {
   ciaProductCode,
   ciaTitleId,
   ciaUniqueId,
+  homeMenuIcons,
   parse3dsArguments,
 } from "../tools/3ds.ts";
+import { encodePNG } from "./png.ts";
 
 /** A guest app declaring the top screen exactly: 400x240 logical, native. */
 function topScreenManifest(): Record<string, any> {
@@ -425,5 +430,67 @@ describe("CIA title identity", () => {
     // makerom builds the romfs from a directory; the raw image 3dsxtool embeds
     // is rejected as "Invalid RomFS Binary".
     expect(rsf).toMatch(/^RomFs:\n {2}RootPath: \$\(APP_ROMFS\)$/m);
+  });
+});
+
+describe("HOME Menu icon", () => {
+  const ROOT = new URL("..", import.meta.url).pathname;
+  const png = (size: number): Buffer => encodePNG(new Uint8Array(size * size * 4), size, size);
+
+  function withApp(files: Record<string, Buffer>, run: (entry: string) => void): void {
+    const directory = mkdtempSync(join(tmpdir(), "pocketjs-3ds-icon-"));
+    try {
+      mkdirSync(join(directory, "3ds"));
+      for (const [name, bytes] of Object.entries(files)) writeFileSync(join(directory, "3ds", name), bytes);
+      run(join(directory, "main.ts"));
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  }
+
+  test("falls back to the host icon when the app ships none", () => {
+    withApp({}, (entry) => expect(homeMenuIcons(entry)).toBeUndefined());
+  });
+
+  test("finds <entry dir>/3ds/icon.png and an optional small icon", () => {
+    withApp({ "icon.png": png(HOME_MENU_ICON_SIZE) }, (entry) => {
+      expect(homeMenuIcons(entry)).toEqual({ icon: join(entry, "..", "3ds", "icon.png") });
+    });
+    withApp(
+      { "icon.png": png(HOME_MENU_ICON_SIZE), "icon-small.png": png(HOME_MENU_SMALL_ICON_SIZE) },
+      (entry) => {
+        expect(homeMenuIcons(entry)?.small).toBe(join(entry, "..", "3ds", "icon-small.png"));
+      },
+    );
+  });
+
+  test("rejects an icon smdhtool would refuse before the container starts", () => {
+    // The PSP's 144x80 ICON0 is the likeliest wrong file to land here.
+    withApp({ "icon.png": encodePNG(new Uint8Array(144 * 80 * 4), 144, 80) }, (entry) => {
+      expect(() => homeMenuIcons(entry)).toThrow(/must be a 48x48 PNG, found 144x80/);
+    });
+    withApp({ "icon.png": Buffer.from("not a png") }, (entry) => {
+      expect(() => homeMenuIcons(entry)).toThrow(/found no PNG header/);
+    });
+    withApp(
+      { "icon.png": png(HOME_MENU_ICON_SIZE), "icon-small.png": png(HOME_MENU_ICON_SIZE) },
+      (entry) => expect(() => homeMenuIcons(entry)).toThrow(/must be a 24x24 PNG/),
+    );
+  });
+
+  test("the Svelte games ship their own icon", () => {
+    for (const app of ["svelte-shooter", "svelte-snake", "wolfensvelte"]) {
+      expect(homeMenuIcons(join(ROOT, "apps", app, "main.ts"))?.icon).toBe(
+        join(ROOT, "apps", app, "3ds", "icon.png"),
+      );
+    }
+  });
+
+  test("the Makefile takes the icon from the environment and stamps it", () => {
+    const makefile = readFileSync(join(ROOT, "hosts/3ds/Makefile"), "utf8");
+    expect(makefile).toContain("ICON ?= $(if $(POCKETJS_ICON),$(POCKETJS_ICON),$(CURDIR)/icon.png)");
+    expect(makefile).toContain("$(if $(POCKETJS_ICON_SMALL),$(POCKETJS_ICON_SMALL),");
+    // Switching back to the older host icon must still rebuild the SMDH.
+    expect(makefile).toContain('"$$POCKETJS_SMDH_AUTHOR" "$(ICON)" "$(SMALL_ICON)" > $(SMDH_STAMP).new');
   });
 });

@@ -7,6 +7,10 @@
 // runScenario the golden suites use, dimmed left-heavy so the XMB column
 // stays legible. Writes apps/<demo>/psp/{Psp.toml,icon0.png,pic1.png};
 // tools/psp.ts picks the fragment up for EVERY framework build of the demo.
+// It also writes apps/<demo>/3ds/icon.png, the 48×48 3DS HOME Menu icon (the
+// same mark on the same ground), which tools/3ds.ts packs into the SMDH.
+//
+// --3ds writes only the 3DS icons, without the sim run or the XMB set.
 //
 // --framework=<fw> bakes a VARIANT set into apps/<demo>/psp/<fw>/ instead:
 // same layout, plus the framework's name on the tile, in the PIC1 corner and
@@ -17,6 +21,7 @@
 //   bun tools/gen-demo-covers.ts                      (all demos, default fw)
 //   bun tools/gen-demo-covers.ts hero music           (a subset)
 //   bun tools/gen-demo-covers.ts --framework=octane   (the Octane twins)
+//   bun tools/gen-demo-covers.ts --3ds svelte-shooter (3DS icon only)
 
 import { createCanvas, GlobalFonts, type SKRSContext2D } from "@napi-rs/canvas";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
@@ -249,9 +254,59 @@ const DEMOS: DemoCover[] = [
       g.fill();
     },
   },
+  {
+    dir: "svelte-snake",
+    bundle: "svelte-snake-main",
+    framework: "svelte",
+    title: "PocketJS Svelte Snake",
+    word: ["SVELTE", "SNAKE"],
+    accent: "#34d399",
+    seconds: 2.0,
+    // The board's own palette: emerald body, lighter head, amber food.
+    mark: (g) => {
+      const cell = (col: number, row: number, fill: string): void => {
+        roundRect(g, 14 + col * 8, 20 + row * 8, 7, 7, 2);
+        g.fillStyle = fill;
+        g.fill();
+      };
+      for (const [col, row] of [[0, 4], [1, 4], [2, 4], [3, 4], [4, 4], [4, 3], [4, 2], [3, 2]] as const) {
+        cell(col, row, "#10b981");
+      }
+      cell(2, 2, "#6ee7b7");
+      g.beginPath();
+      g.arc(17.5, 23.5, 3.5, 0, Math.PI * 2);
+      g.fillStyle = "#fbbf24";
+      g.fill();
+    },
+  },
 ];
 
+/** The mark's drawn bounds in ICON0 space, from the alpha it leaves. */
+function markBounds(demo: DemoCover): { x: number; y: number; w: number; h: number } {
+  const c = createCanvas(144, 80);
+  const g = c.getContext("2d");
+  demo.mark(g);
+  const { data } = g.getImageData(0, 0, 144, 80);
+  let x0 = 144;
+  let y0 = 80;
+  let x1 = -1;
+  let y1 = -1;
+  for (let y = 0; y < 80; y++) {
+    for (let x = 0; x < 144; x++) {
+      if (data[(y * 144 + x) * 4 + 3] === 0) continue;
+      x0 = Math.min(x0, x);
+      y0 = Math.min(y0, y);
+      x1 = Math.max(x1, x);
+      y1 = Math.max(y1, y);
+    }
+  }
+  if (x1 < 0) throw new Error(`${demo.dir}: the mark draws nothing`);
+  return { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+}
+
 const args = Bun.argv.slice(2);
+// --3ds writes only the HOME Menu icons: no XMB set, no sim run.
+const threeDsOnly = args.includes("--3ds");
 const frameworkArg = args.find((a) => a.startsWith("--framework="));
 // No flag = the shared, framework-neutral cover set the default build uses.
 const framework = frameworkArg
@@ -263,6 +318,32 @@ const selected = only.size === 0 ? DEMOS : DEMOS.filter((d) => only.has(d.dir));
 if (selected.length === 0) throw new Error(`no demos match: ${[...only].join(", ")}`);
 
 for (const demo of selected) {
+  // 3DS HOME Menu icon — 48×48: the mark alone on the family ground, scaled to
+  // fit a 34 px square with the accent rule under it. smdhtool reduces it to
+  // the 24×24 small icon. One per demo, whatever the framework: HOME Menu has
+  // no column of framework twins to tell apart.
+  if (framework === null) {
+    const icon = createCanvas(48, 48);
+    const g = icon.getContext("2d");
+    g.fillStyle = "#0a1118";
+    g.fillRect(0, 0, 48, 48);
+    const box = markBounds(demo);
+    const scale = Math.min(34 / box.w, 34 / box.h);
+    g.save();
+    g.translate(24 - (box.w * scale) / 2, 21 - (box.h * scale) / 2);
+    g.scale(scale, scale);
+    g.translate(-box.x, -box.y);
+    demo.mark(g);
+    g.restore();
+    g.fillStyle = demo.accent;
+    g.fillRect(17, 41, 14, 2);
+    const dir = `${ROOT}apps/${demo.dir}/3ds/`;
+    mkdirSync(dir, { recursive: true });
+    await Bun.write(dir + "icon.png", icon.toBuffer("image/png"));
+    console.log(`covers: apps/${demo.dir}/3ds/icon.png (48x48 HOME Menu icon)`);
+  }
+  if (threeDsOnly) continue;
+
   const out =
     framework === null
       ? `${ROOT}apps/${demo.dir}/psp/`

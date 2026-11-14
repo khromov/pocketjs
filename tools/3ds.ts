@@ -49,6 +49,8 @@
 //   POCKETJS_SMDH_AUTHOR   application id
 //   POCKETJS_SMDH_DESC     application description
 //   POCKETJS_SIM_HZ        presentation rate from <entry dir>/3ds/host.toml, "" for 60
+//   POCKETJS_ICON          the app's 48x48 SMDH icon, "" for the host's
+//   POCKETJS_ICON_SMALL    the app's 24x24 SMDH icon, "" to reduce the large one
 //   POCKETJS_CAPTURE       "1" under --capture, "" otherwise
 //   POCKETJS_CAPTURE_INPUT scripted input tape ("frame:mask,…"), baked in
 //   POCKETJS_CAPTURE_TOUCH scripted bottom-screen touch tape, baked in
@@ -737,6 +739,56 @@ export function ciaProcessName(title: string, appId: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// HOME Menu icon
+// ---------------------------------------------------------------------------
+
+/** smdhtool's large icon is 48x48; its small one, 24x24. */
+export const HOME_MENU_ICON_SIZE = 48;
+export const HOME_MENU_SMALL_ICON_SIZE = 24;
+
+export interface HomeMenuIcons {
+  /** The 48x48 icon HOME Menu draws on the app's tile. */
+  readonly icon: string;
+  /** A hand-drawn 24x24 reduction; absent, smdhtool reduces the large icon. */
+  readonly small?: string;
+}
+
+/** Width and height from a PNG's IHDR, or undefined when the bytes are not a PNG. */
+function pngSize(bytes: Uint8Array): [number, number] | undefined {
+  const signature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  if (bytes.length < 24 || signature.some((byte, i) => bytes[i] !== byte)) return undefined;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  return [view.getUint32(16), view.getUint32(20)];
+}
+
+/**
+ * The app's own SMDH icon: `<entry dir>/3ds/icon.png`, plus an optional
+ * `3ds/icon-small.png`, the 3DS counterpart of the PSP's `<entry dir>/psp/`
+ * XMB art. Undefined when the app ships none, and the build falls back to the
+ * host's generic hosts/3ds/icon.png. A wrong size throws here, before the
+ * container starts, rather than inside smdhtool.
+ */
+export function homeMenuIcons(entryFile: string): HomeMenuIcons | undefined {
+  const directory = join(dirname(entryFile), "3ds");
+  const icon = join(directory, "icon.png");
+  if (!existsSync(icon)) return undefined;
+  const check = (path: string, size: number): void => {
+    const found = pngSize(new Uint8Array(readFileSync(path)));
+    if (!found || found[0] !== size || found[1] !== size) {
+      throw new Error(
+        `PocketJS 3ds: ${path} must be a ${size}x${size} PNG` +
+          (found ? `, found ${found[0]}x${found[1]}` : ", found no PNG header"),
+      );
+    }
+  };
+  check(icon, HOME_MENU_ICON_SIZE);
+  const small = join(directory, "icon-small.png");
+  if (!existsSync(small)) return { icon };
+  check(small, HOME_MENU_SMALL_ICON_SIZE);
+  return { icon, small };
+}
+
+// ---------------------------------------------------------------------------
 // Build plan
 // ---------------------------------------------------------------------------
 
@@ -935,6 +987,10 @@ export async function build3ds(argv: readonly string[]): Promise<string> {
 
   const output = join(args.packageDir, `${inputs.appOutput}.3dsx`);
   const ciaOutput = join(args.packageDir, `${inputs.appOutput}.cia`);
+  const icons = homeMenuIcons(resolvePath(args.projectRoot, plan.app.entry));
+  console.log(
+    `PocketJS 3ds: HOME Menu icon ${icons ? icons.icon.replace(repository, "") : "hosts/3ds/icon.png (host default)"}`,
+  );
   const makeEnvironment: Record<string, string> = {
     ...hostBuildEnvironment(inputs, {
       outputDirectory: containerPathFor(args.outputDir, mounts),
@@ -951,6 +1007,8 @@ export async function build3ds(argv: readonly string[]): Promise<string> {
     POCKETJS_SMDH_AUTHOR: plan.app.id,
     POCKETJS_SMDH_DESC: `PocketJS ${plan.app.title}`,
     POCKETJS_SIM_HZ: simHz,
+    POCKETJS_ICON: icons ? containerPathFor(icons.icon, mounts) : "",
+    POCKETJS_ICON_SMALL: icons?.small ? containerPathFor(icons.small, mounts) : "",
     POCKETJS_CAPTURE: args.capture ? "1" : "",
     // Explicit so a previous run's tape never lingers in the object cache.
     POCKETJS_CAPTURE_INPUT: capture.input,
