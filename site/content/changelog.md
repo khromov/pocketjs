@@ -17,6 +17,34 @@ Engine and site milestones, newest first. Versions track the
   `apps/svelte-snake`, `apps/svelte-shooter`, `apps/wolfensvelte` and
   `apps/svelte-lab`, plus `app.svelte` ports of cards, chrome, cursor, hero,
   launcher and motions.
+- **Svelte apps have the input and viewport APIs of the other adapters.**
+  `@pocketjs/framework/svelte/input` resolves to
+  `framework/src/input-api-svelte.ts`: the shared input module plus
+  `onAxisDelta` and `onMotion`. `@pocketjs/framework/svelte/lifecycle` adds
+  `onAxisDelta`, `onMotion` and the right-stick readers;
+  `@pocketjs/framework/svelte/components` adds `AxisHandler`, `MotionHandler`
+  and `useViewport()`, which returns `{ current: { w, h } }` as Svelte state;
+  `@pocketjs/framework/svelte` exports `onViewport`. The Svelte frame loop runs
+  on the shared `FrameRegistry` and `dispatchFrame`
+  (`framework/src/frame-dispatch.ts`): placed handlers, gesture presses and the
+  focused node's CIRCLE press run in live-tree document order after the
+  `onFrame` callbacks, `onTextEvent` receives hardware text events, and
+  `<Sprite>` takes `frameStep`.
+- **3DS apps play sound through the audio module.** `platforms/3ds/audio.c`
+  implements `contracts/spec/audio.ts` on NDSP: **up to four streams on
+  channels 8–11** at the source rate, a 16384-frame ring per stream in linear
+  memory, and one service call per presented frame from the main loop.
+  `hosts/3ds-dev/pocket.host.json` advertises `audio.pcm`, so Wolfensvelte and
+  the shooter keep their `audio:wav.*` pak entries on the 3DS. NDSP needs
+  `sdmc:/3ds/dspfirm.cdc`; without it the process boots without
+  `globalThis.audio` and the app runs silent. `products/3ds/README.md`,
+  *Audio*, has the details.
+- **PSP and 3DS builds can present one app at 30 Hz.** `pocketjs_sim_hz = 30`
+  in `apps/<app>/psp/Psp.toml` or `apps/<app>/3ds/host.toml` replaces the
+  selected cadence for the standalone EBOOT or the embedded 3DS package, and
+  **each presented frame advances two 60 Hz core ticks**, so game time keeps
+  full speed. `apps/svelte-shooter` and `apps/wolfensvelte` declare it.
+  `docs/DETERMINISM.md` follows the rate through each build.
 
 ## 0.16.0 — November 2, 2026
 
