@@ -34,9 +34,10 @@
 // --force is required: needsLauncherCompile() and renderCovers() in
 // tools/launcher.ts reuse an existing dist/<output>.js, so without it the pack
 // step packages the previously built Solid bundle under the Svelte plan and
-// the EBOOT claims Svelte and runs Solid. For the same reason the Svelte
-// files a flipped twin leaves under its Solid output name (twinOutputs) are
-// removed when the build ends, and the next Solid build compiles them again.
+// the EBOOT claims Svelte and runs Solid. For the same reason the files this
+// build leaves under Solid output names (twinOutputs: the flipped twins' and
+// the gallery launcher's) are removed when the build ends, and the next Solid
+// build compiles them again.
 
 import { $ } from "bun";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -155,17 +156,23 @@ function logoPlate(width: number, height: number, logo: number): Buffer {
   return encodePNG(out, width, height);
 }
 
-/** The files a flipped twin's Svelte compile leaves under its Solid output
- *  name: dist/<output>.{js,worker.js,pak,pocket,styles.ts} and its launcher
- *  covers. A
- *  later `tools/launcher.ts build` without --force, or `tools/psp.ts <app>
- *  --skip-build`, would reuse them under the restored Solid manifest, so they
- *  go once the EBOOT is built, or when the build fails or is interrupted. */
-const twinOutputs = flip.flatMap((app) => [
-  ...[".js", ".worker.js", ".pak", ".pocket", ".styles.ts"].map((ext) => join(DIST, `${app.output}${ext}`)),
-  ...["png", "placeholder"].map((ext) => join(APPS, `launcher/covers/cover-${app.output}.${ext}`)),
-  join(APPS, `launcher/covers/refl-${app.output}.png`),
-]);
+/** The files this build leaves under a Solid output name: a flipped twin's
+ *  dist/<output>.{js,worker.js,pak,pocket,styles.ts} and launcher covers, and
+ *  the gallery launcher's dist/launcher-main.* (this deck's registry and
+ *  order). A later `tools/launcher.ts build` without --force,
+ *  `tools/psp.ts <app> --skip-build` or the sim's bootWorld would reuse them
+ *  under the committed Solid manifests, so they go once the EBOOT is built,
+ *  or when the build fails or is interrupted. The EBOOT embeds
+ *  dist/packages/, which keeps its copies. */
+const DIST_OUTPUT_EXTENSIONS = [".js", ".worker.js", ".pak", ".pocket", ".styles.ts"];
+const twinOutputs = [
+  ...flip.flatMap((app) => [
+    ...DIST_OUTPUT_EXTENSIONS.map((ext) => join(DIST, `${app.output}${ext}`)),
+    ...["png", "placeholder"].map((ext) => join(APPS, `launcher/covers/cover-${app.output}.${ext}`)),
+    join(APPS, `launcher/covers/refl-${app.output}.png`),
+  ]),
+  ...DIST_OUTPUT_EXTENSIONS.map((ext) => join(DIST, `${SHELL_OUTPUT}${ext}`)),
+];
 function dropTwinOutputs(): void {
   for (const file of twinOutputs) rmSync(file, { force: true });
 }
