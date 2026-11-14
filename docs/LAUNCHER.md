@@ -171,9 +171,11 @@ A multi-app PSP package therefore uses an explicit 20 Hz host policy:
 `__simHz = 20`, three fixed core ticks per virtual frame, and a three-vblank
 presentation cadence. The deck still covers 10 cards per second and ms-based
 animations retain their durations; they are sampled at 20 observations per
-second. Standalone PSP apps present at 60 Hz unless their `psp/Psp.toml`
-declares `pocketjs_sim_hz` (docs/DETERMINISM.md). This is one process-wide
-timebase, never a launcher-name branch or a `slowPsp` capability.
+second. A standalone PSP app presents at the cadence the runtime selects for
+its `app.tickHz`, 60 Hz at the default rate, or at the `pocketjs_sim_hz` rate
+its `psp/Psp.toml` declares (docs/DETERMINISM.md); `tools/psp.ts` and
+`programs/psp/build.rs` refuse that key in a multi-app build. This is one
+process-wide timebase, never a launcher-name branch or a `slowPsp` capability.
 
 ## Verification
 
@@ -246,7 +248,9 @@ Every other directory under
 SHA-256 of the app id) whose state names a committed active package is an
 installed app. Apps arrive there through a Pocket Link install
 (`link.install`, contracts/spec/link.ts) or a dev-wire push, each into the
-app's own slot.
+app's own slot. A `pocketjs_sim_hz` rate in the embedded app's `3ds/host.toml`
+(docs/DETERMINISM.md) applies to the embedded package's slot: an installed app
+the host switches to presents at 60 Hz.
 
 The ops keep their numbers and meanings, with these differences:
 

@@ -57,12 +57,47 @@ after(1.5, () => setPhase("menu")); // fires 1.5 VIRTUAL seconds out —
 // frame 90 at 60 Hz, frame 3 at 2 Hz, the same instant of the same journey.
 ```
 
-PSP and 3DS builds override the presented cadence per app with
-`pocketjs_sim_hz = <n>`, where `n` divides 60: in `apps/<app>/psp/Psp.toml` for
-the PSP and in `apps/<app>/3ds/host.toml` for the 3DS. The build presents at
-`n` Hz and runs **`60 / n` fixed core ticks per presented frame**. A game whose
-frame takes longer than **16.7 ms** on the console declares 30. Game code that
-counts in 60 Hz ticks runs `ticksPerFrame()` steps per frame
+**A PSP or 3DS build can replace the selected cadence for the app it embeds.**
+The app declares `pocketjs_sim_hz = <n>` beside its packaging metadata:
+`apps/<app>/psp/Psp.toml` for the PSP, `apps/<app>/3ds/host.toml` for the 3DS.
+`tools/sim-hz.ts` reads the line and accepts the divisors of 60. The guest
+publishes `__simHz = n`, presents `n` frames per second and advances
+**`app.tickHz / n` fixed core ticks per presented frame**, so a 60 Hz package
+at 30 Hz runs two ticks a frame and its virtual time keeps full speed. It is a
+program override of the cadence selection above, the same kind as the PSP's
+multi-app 20 Hz. Without the key the selection stands: the PSP host contract
+lists cadences [60, 30, 20] and `3ds-dev` lists [60], so a 60 Hz package
+presents at 60 on both. The rate applies when `n` divides `app.tickHz` and a
+frame runs at most 60 core ticks (`simHzMismatch` in `tools/sim-hz.ts`), and
+both builds refuse a rate that fails either check. A game whose frame takes
+longer than **16.7 ms** on the console declares 30; `apps/svelte-shooter` and
+`apps/wolfensvelte` do.
+
+- **PSP.** `tools/psp.ts` reads the key, strips it from the generated
+  `programs/psp/Psp.toml` and passes it as `POCKETJS_SIM_HZ` to
+  `programs/psp/build.rs`, which bakes it in with `cargo:rustc-env`.
+  `programs/psp/src/main.rs` hands `STANDALONE_SIM_HZ` to the runtime as
+  `fixed_cadence`; `programs/psp/src/instance.rs` publishes it as `__simHz` in
+  place of the selected cadence, and `programs/psp/src/program.rs` waits
+  `60 / n` vblanks per frame. **A standalone EBOOT is the one PSP build that
+  takes a rate**: `tools/psp.ts` and `build.rs` refuse it for a multi-app
+  package, which presents at 20 Hz, and `build.rs` refuses it for the generic
+  runtime, which carries no app.
+- **3DS.** `products/3ds/build.ts` reads the key (`threeDsSimHz`) and passes
+  it to `products/3ds/Makefile`, which compiles **`-DPOCKETJS_SIM_HZ=<n>`**
+  into every object. `guest_initialize` in `products/3ds/src/qjs.c`
+  overwrites `__simHz` before the bundle runs, and `qjs_frame` advances the
+  core ticks through `pocket_qjs_program_advance`. `products/3ds/src/main.c`
+  begins a frame every `60 / n` vblanks and waits before `hidScanInput`, so
+  the guest's turn reads input sampled at the vblank its frame begins at.
+  **The rate belongs to the embedded app's runtime slot**
+  (`qjs_set_rate_slot`): the embedded package and its updates present at `n`
+  Hz, and an installed app the launcher switches to presents at 60. The
+  generic `programs/3ds` runtime and `pocket pack` repacks carry no rate. A
+  capture build waits for no vblank and advances the same core ticks per
+  frame, so its frame numbers count `n` Hz frames.
+
+Game code that counts in 60 Hz ticks runs `ticksPerFrame()` steps per frame
 (`apps/wolfensvelte/app.svelte`) or scales its rates by it
 (`apps/svelte-shooter`).
 
