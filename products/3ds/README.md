@@ -762,6 +762,10 @@ and `ndspExit` then move the count between 1 and 2 and never initialize or
 finalize NDSP. `boot_guest` binds the module before `qjs_boot` for a plan
 with `audio.pcm`; `qjs_shutdown` resets it at a guest switch, and handle
 generations continue, so a handle of the previous guest names no stream.
+**Neither the module nor `media.c` sets NDSP's output mode**: `ndspInit` takes
+it from the console's sound setting (mono, stereo or surround), and with NDSP
+held for the process a mode set by either would override that setting until
+exit. A stream's samples go to the front left and right mix.
 
 **NDSP needs the DSP firmware at `sdmc:/3ds/dspfirm.cdc`.** Luma3DS writes it
 from Rosalina: L+Down+SELECT, *Miscellaneous options*, *Dump DSP firmware*.

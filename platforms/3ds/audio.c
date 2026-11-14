@@ -219,9 +219,11 @@ static void unavailable(char *error, size_t error_length) {
 bool pocket_3ds_audio_start(void) {
   if (attempted) return ready;
   attempted = true;
+  /* ndspInit takes the output mode from the console's sound setting (mono,
+   * stereo or surround). The module keeps it: it holds NDSP for the whole
+   * process, so a mode set here would override that setting until exit. */
   start_result = ndspInit();
   if (R_FAILED(start_result)) return false;
-  ndspSetOutputMode(NDSP_OUTPUT_STEREO);
   ready = true;
   return true;
 }

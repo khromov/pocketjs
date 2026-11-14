@@ -273,7 +273,6 @@ static void play(const Command *cmd) {
   } else {
     atomic_store(&audio_out,true);
     audio_live=true; audio_started=false; was_starved=false; last_volume=101; last_paused=false;
-    ndspSetOutputMode(NDSP_OUTPUT_STEREO);
     ndspChnReset(AUDIO_CHANNEL); ndspChnSetInterp(AUDIO_CHANNEL,NDSP_INTERP_LINEAR);
     ndspChnSetRate(AUDIO_CHANNEL,MEDIA_SAMPLE_RATE); ndspChnSetFormat(AUDIO_CHANNEL,NDSP_FORMAT_STEREO_PCM16);
     for (unsigned i=0;i<AUDIO_SLOTS;i++) { waves[i].status=NDSP_WBUF_FREE; waves[i].nsamples=0; }

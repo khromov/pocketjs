@@ -130,7 +130,9 @@ static uint32_t touched;
 static bool strict_alignment = true;
 static Result init_result;
 static int refs, inits, exits;
-static ndspOutputMode output_mode = NDSP_OUTPUT_MONO;
+/* The console's sound setting, which libctru's ndspInit reads. */
+static ndspOutputMode output_mode = NDSP_OUTPUT_SURROUND;
+static unsigned output_mode_sets;
 
 static FakeChannel *touch(int id) {
   CHECK(id >= 0 && id < 24);
@@ -150,7 +152,10 @@ void ndspExit(void) {
   refs--;
 }
 
-void ndspSetOutputMode(ndspOutputMode mode) { output_mode = mode; }
+void ndspSetOutputMode(ndspOutputMode mode) {
+  output_mode = mode;
+  output_mode_sets++;
+}
 
 static void clear_queue(FakeChannel *c) {
   for (unsigned i = 0; i < c->count; i++) c->queue[i]->status = NDSP_WBUF_DONE;
@@ -371,7 +376,9 @@ static void lifecycle(void) {
 
   CHECK(pocket_3ds_audio_start());
   CHECK(pocket_3ds_audio_start());
-  CHECK(inits == 1 && refs == 1 && output_mode == NDSP_OUTPUT_STEREO && pocket_3ds_audio_ready());
+  CHECK(inits == 1 && refs == 1 && pocket_3ds_audio_ready());
+  /* NDSP stays up for the process: the console's sound setting stays too. */
+  CHECK(output_mode == NDSP_OUTPUT_SURROUND && output_mode_sets == 0);
   CHECK(pocket_3ds_audio_bind(error, sizeof error) && pocket_3ds_audio_bound());
   CHECK(live_allocations() == POCKET_3DS_AUDIO_MAX_STREAMS);
   for (unsigned i = 0; i < 16; i++) {
@@ -1007,6 +1014,7 @@ static void shutdown_checks(void) {
   CHECK(exits == 1);
   /* Only the stream channels were ever touched; channel 0 is media.c's. */
   CHECK((touched & ~(((1u << POCKET_3DS_AUDIO_MAX_STREAMS) - 1u) << FIRST)) == 0);
+  CHECK(output_mode == NDSP_OUTPUT_SURROUND && output_mode_sets == 0);
   CHECK(dsp[0].adds == 0 && dsp[0].clears == 0 && dsp[0].resets == 0);
   printf("ok shutdown, channel 0 untouched\n");
 }
