@@ -91,9 +91,13 @@ function onTeardown(dispose: () => void): void {
 }
 
 /** Register `callback` for the calling component's lifetime. With `placement`
- *  it runs in the frame's document-ordered press queue at that node. */
+ *  it runs in the frame's document-ordered press queue at that node. Without
+ *  one it is wrapped, as framework/src/frame.ts does: the registry is a set,
+ *  so one function registered twice still runs twice and each registration
+ *  is disposed on its own. */
 function registerFrame(callback: FrameCallback, placement?: NodeMirror): () => void {
-  const dispose = registry.add(callback, placement);
+  const wrapped: FrameCallback = placement ? callback : (buttons) => callback(buttons);
+  const dispose = registry.add(wrapped, placement);
   onTeardown(dispose);
   return dispose;
 }

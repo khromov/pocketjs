@@ -50,6 +50,7 @@ const { rightAnalogX, rightAnalogY } = await import("../framework/src/lifecycle-
 const { input, log } = await import("./fixtures/svelte/input-state.svelte.ts");
 const Columns = (await import("./fixtures/svelte/Columns.svelte")).default;
 const Input = (await import("./fixtures/svelte/Input.svelte")).default;
+const Tickers = (await import("./fixtures/svelte/Tickers.svelte")).default;
 const Sprite = (await import("../framework/src/svelte/Sprite.svelte")).default;
 
 type Call = [string, ...unknown[]];
@@ -469,6 +470,20 @@ describe("entry", () => {
       frame(0);
 
       expect(log).toEqual([`inclination 45 ${MotionQuality.High} 2`]);
+    });
+
+    test("one function registered by two components runs twice a frame, and each unmount drops one", () => {
+      input.early = true;
+      mountApp(Tickers);
+      frame(0);
+      expect(log).toEqual(["tick", "tick"]);
+
+      log.length = 0;
+      input.early = false;
+      flushSync();
+      runSweep();
+      frame(0);
+      expect(log).toEqual(["tick"]);
     });
 
     test("the frame handler latches the right stick", () => {
