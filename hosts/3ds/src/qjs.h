@@ -6,6 +6,23 @@
 #include <stdint.h>
 
 /*
+ * The presentation rate (docs/DETERMINISM.md). The core steps at exactly
+ * 1/60 s (contracts/spec/spec.ts FIXED_DT); the host presents
+ * POCKETJS_SIM_HZ frames per second and runs POCKETJS_TICKS_PER_FRAME core
+ * ticks per frame. tools/3ds.ts passes the app's `pocketjs_sim_hz` from
+ * <entry dir>/3ds/host.toml; without it the host presents at 60. qjs.c
+ * publishes the rate as globalThis.__simHz.
+ */
+#ifndef POCKETJS_SIM_HZ
+#define POCKETJS_SIM_HZ 60
+#endif
+_Static_assert(
+  POCKETJS_SIM_HZ >= 1 && 60 % POCKETJS_SIM_HZ == 0,
+  "POCKETJS_SIM_HZ must divide the 60 Hz core rate"
+);
+#define POCKETJS_TICKS_PER_FRAME (60 / POCKETJS_SIM_HZ)
+
+/*
  * QuickJS embedding: `globalThis.ui` over the pocketjs-3ds-core C ABI, plus
  * the frame contract.
  *

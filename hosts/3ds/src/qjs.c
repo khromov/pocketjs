@@ -36,9 +36,8 @@
 #error "POCKETJS_HOST_ABI must come from the verified ResolvedBuildPlan"
 #endif
 
-/* contracts/spec/spec.ts FIXED_DT: the core steps at exactly 1/60 s, and this
- * host presents at the same rate, so the advertised simulation rate is 60. */
-#define POCKETJS_SIMULATION_HZ 60
+/* The advertised simulation rate is the presentation rate (qjs.h). */
+#define POCKETJS_SIMULATION_HZ POCKETJS_SIM_HZ
 /* QuickJS recurses; the 3DS main thread's stack is set in main.c.
  * A QuickJS call frame is expensive and mounting a UI descends the tree, so
  * this budget is spent on JSX NESTING DEPTH rather than node count. 192 KiB

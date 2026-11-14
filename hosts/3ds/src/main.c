@@ -5,8 +5,8 @@
  *
  * Frame order (docs/DESIGN.md, the shape hosts/psp/src/main.rs drives):
  * hidScanInput -> resolve bottom-screen touch -> globalThis.frame -> drain
- * jobs -> ui_tick (fixed 1/60) -> build both DrawLists -> one C3D frame that
- * draws the top and bottom targets.
+ * jobs -> ui_tick x POCKETJS_TICKS_PER_FRAME (fixed 1/60 each) -> build both
+ * DrawLists -> one C3D frame that draws the top and bottom targets.
  *
  * The app owns a 400x240 primary surface and a simultaneous 320x240 auxiliary
  * surface. Both render targets are ROTATED, and Mtx_OrthoTilt in gfx.c keeps
@@ -565,13 +565,31 @@ static void accept_guest(
   devserver_report_install("accepted", accepted_hash, "first PICA command list retired");
 }
 
+#if !defined(POCKETJS_CAPTURE) && POCKETJS_TICKS_PER_FRAME > 1
+/* ARM11 system ticks per LCD refresh (268111856 Hz / ~59.83 Hz). */
+#define VBLANK_SYSTEM_TICKS 4481136ull
+/* System tick at the previous successful C3D_FrameBegin. */
+static u64 last_frame_begin;
+#endif
+
 static void begin_frame_wait(uint32_t run_frame) {
 #ifdef POCKETJS_CAPTURE
   (void)run_frame;
   C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
 #else
+  /* Begin a frame at most every POCKETJS_TICKS_PER_FRAME vblanks. The
+   * vblanks that passed during this frame's CPU work count toward the wait,
+   * counted from the previous FrameBegin (which follows a vblank), so 25 ms
+   * of work at 30 Hz waits one more vblank, not two (the shape of
+   * hosts/psp/src/main.rs wait_for_present). gspWaitForVBlank always waits
+   * for the next vblank. */
+  uint32_t vblanks = 1;
+#if POCKETJS_TICKS_PER_FRAME > 1
+  u64 passed = (svcGetSystemTick() - last_frame_begin) / VBLANK_SYSTEM_TICKS;
+  if (passed + 1 < POCKETJS_TICKS_PER_FRAME) vblanks = POCKETJS_TICKS_PER_FRAME - (uint32_t)passed;
+#endif
+  for (uint32_t i = 0; i < vblanks; i++) gspWaitForVBlank();
   /* A bounded wait keeps HOME alive when the prior command list hangs. */
-  gspWaitForVBlank();
   uint32_t waited = 0;
   while (!C3D_FrameBegin(C3D_FRAME_NONBLOCK)) {
     gspWaitForVBlank();
@@ -589,6 +607,9 @@ static void begin_frame_wait(uint32_t run_frame) {
       fail(verdict);
     }
   }
+#if POCKETJS_TICKS_PER_FRAME > 1
+  last_frame_begin = svcGetSystemTick();
+#endif
 #endif
 }
 
@@ -879,9 +900,9 @@ int main(void) {
       continue;
 #endif
     }
-    /* Animations always advance at the fixed 1/60 timestep; this host
-     * presents at the same rate, so it is one tick per frame. */
-    ui_tick();
+    /* Animations always advance at the fixed 1/60 timestep: a host that
+     * presents below 60 Hz runs several ticks per presented frame (qjs.h). */
+    for (int tick = 0; tick < POCKETJS_TICKS_PER_FRAME; tick++) ui_tick();
     size_t words = ui_draw();
     size_t auxiliary_words = ui_draw_auxiliary();
     const uint32_t *auxiliary_list = ui_draw_auxiliary_list_ptr();

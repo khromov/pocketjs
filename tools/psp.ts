@@ -31,6 +31,7 @@ import {
   hostBuildEnvironment,
 } from "../framework/src/manifest/host-build-inputs.ts";
 import { verifyPlanHash, type ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
+import { readSimHz, SIM_HZ_LINE } from "./sim-hz.ts";
 import { resolvePspBuildToolchain } from "./psp-toolchain.ts";
 
 const pspUiDir = new URL("..", import.meta.url).pathname; // PocketJS/
@@ -198,7 +199,6 @@ const generatedPspToml = `${nativeDir}Psp.toml`;
 // hosts/psp/build.rs from POCKETJS_SIM_HZ. It is read here and stripped from
 // the generated file, so cargo-psp never parses a key it does not own.
 // Empty (no key, no fragment) keeps the 60 Hz core rate.
-const SIM_HZ_KEY = /^[ \t]*pocketjs_sim_hz\b.*(?:\r?\n|$)/gm;
 let simHz = "";
 const generatedExisting =
   existsSync(generatedPspToml) && (await Bun.file(generatedPspToml).text()).startsWith(GENERATED_MARK);
@@ -212,19 +212,13 @@ if (existsSync(xmbFragment)) {
   }
   const fragDir = `${fragmentHome}/`;
   const fragment = await Bun.file(xmbFragment).text();
-  for (const line of fragment.match(SIM_HZ_KEY) ?? []) {
-    const m = /^\s*pocketjs_sim_hz\s*=\s*(\d+)\s*(?:#.*)?$/.exec(line.trimEnd());
-    const hz = m ? Number(m[1]) : NaN;
-    if (!Number.isInteger(hz) || hz < 1 || 60 % hz !== 0) {
-      console.error(
-        `PocketJS psp: ${xmbFragmentLabel}: pocketjs_sim_hz must be an integer that divides 60 ` +
-          `(1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60), got: ${line.trim()}`,
-      );
-      process.exit(1);
-    }
-    simHz = String(hz);
+  try {
+    simHz = readSimHz(fragment, xmbFragmentLabel);
+  } catch (error) {
+    console.error(`PocketJS psp: ${error instanceof Error ? error.message : String(error)}`);
+    process.exit(1);
   }
-  const rewritten = fragment.replace(SIM_HZ_KEY, "").replace(
+  const rewritten = fragment.replace(SIM_HZ_LINE, "").replace(
     /^(\s*\w+_(?:png|pmf|at3))(\s*=\s*")(?!\/)([^"]+)(")/gm,
     (_m, key, eq, rel, close) => `${key}${eq}${fragDir}${rel}${close}`,
   );

@@ -48,6 +48,7 @@
 //   POCKETJS_SMDH_TITLE    application title  (3dsxtool --smdh metadata)
 //   POCKETJS_SMDH_AUTHOR   application id
 //   POCKETJS_SMDH_DESC     application description
+//   POCKETJS_SIM_HZ        presentation rate from <entry dir>/3ds/host.toml, "" for 60
 //   POCKETJS_CAPTURE       "1" under --capture, "" otherwise
 //   POCKETJS_CAPTURE_INPUT scripted input tape ("frame:mask,…"), baked in
 //   POCKETJS_CAPTURE_TOUCH scripted bottom-screen touch tape, baked in
@@ -93,6 +94,7 @@ import {
   resolve3dsBuildPlan,
 } from "./3ds-profile.ts";
 import { makeVariant } from "./pocket-pack.ts";
+import { readSimHz } from "./sim-hz.ts";
 
 const repository = new URL("..", import.meta.url).pathname; // PocketJS/
 const hostDirectory = `${repository}hosts/3ds/`;
@@ -822,6 +824,12 @@ export async function build3ds(argv: readonly string[]): Promise<string> {
   }
   const { plan, planPath, manifestPath } = await loadBuildPlan(args);
   const inputs = extractHostBuildInputs(plan, { expectedTarget: TARGET_ID });
+  // Presentation rate (docs/DETERMINISM.md): `pocketjs_sim_hz` in
+  // <entry dir>/3ds/host.toml, the 3DS counterpart of the same key in the
+  // PSP's psp/Psp.toml. No file keeps 60 Hz.
+  const hostPolicy = resolvePath(args.projectRoot, plan.app.entry, "..", "3ds", "host.toml");
+  const simHz = existsSync(hostPolicy) ? readSimHz(readFileSync(hostPolicy, "utf8"), hostPolicy) : "";
+  if (simHz) console.log(`PocketJS 3ds: presents at ${simHz} Hz (pocketjs_sim_hz in ${hostPolicy})`);
   const capture = args.capture
     ? captureDefines(process.env)
     : { input: "", touch: "", start: "", count: "" };
@@ -942,6 +950,7 @@ export async function build3ds(argv: readonly string[]): Promise<string> {
     POCKETJS_SMDH_TITLE: plan.app.title,
     POCKETJS_SMDH_AUTHOR: plan.app.id,
     POCKETJS_SMDH_DESC: `PocketJS ${plan.app.title}`,
+    POCKETJS_SIM_HZ: simHz,
     POCKETJS_CAPTURE: args.capture ? "1" : "",
     // Explicit so a previous run's tape never lingers in the object cache.
     POCKETJS_CAPTURE_INPUT: capture.input,

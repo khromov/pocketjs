@@ -24,6 +24,7 @@
 #   POCKETJS_SMDH_TITLE      SMDH metadata
 #   POCKETJS_SMDH_AUTHOR
 #   POCKETJS_SMDH_DESC
+#   POCKETJS_SIM_HZ          presentation rate, a divisor of 60; empty = 60
 #   POCKETJS_CAPTURE         "1" builds the deterministic e2e binary
 #   POCKETJS_CAPTURE_INPUT   baked input tape, "frame:mask,frame:mask"
 #   POCKETJS_CAPTURE_TOUCH   baked touch tape, "frame:id,x,y@frame:-"
@@ -86,6 +87,10 @@ CFLAGS := -Wall -Wextra -O2 -g -std=gnu11 -mword-relocations -ffunction-sections
 
 ifeq ($(POCKETJS_OFFLOAD),1)
 CFLAGS += -DPOCKETJS_OFFLOAD -DPOCKETJS_OFFLOAD_KEY='"sdmc:/pocketjs/offload/$(POCKETJS_OFFLOAD_SLOT).key"'
+endif
+
+ifneq ($(POCKETJS_SIM_HZ),)
+CFLAGS += -DPOCKETJS_SIM_HZ=$(POCKETJS_SIM_HZ)
 endif
 
 ifeq ($(POCKETJS_CAPTURE),1)
