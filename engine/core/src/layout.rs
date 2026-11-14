@@ -972,30 +972,36 @@ fn measure_leaf(
     }
 }
 
+/// Solves `root` in a `width` x `height` box and returns the number of measure
+/// callbacks. Every solve goes through this one function: taffy's algorithms
+/// are generic over the measure closure, so each distinct closure type compiles
+/// flexbox, leaf, rounding and the tree view again (about 75 KB of MIPS code on
+/// the PSP for a second copy).
+fn solve_layout(taffy: &mut TaffyTree<MeasureCtx>, root: taffy::NodeId, width: f32, height: f32) -> u64 {
+    let mut callbacks = 0u64;
+    let _ = taffy.compute_layout_with_measure(
+        root,
+        Size {
+            width: AvailableSpace::Definite(width),
+            height: AvailableSpace::Definite(height),
+        },
+        |known, _available, _id, ctx, _style| -> Size<f32> {
+            callbacks = callbacks.saturating_add(1);
+            measure_leaf(known, ctx)
+        },
+    );
+    callbacks
+}
+
 fn compute(tree: &mut Tree, eng: &mut LayoutEngine, root_slot: u32, root_nid: taffy::NodeId) {
     #[cfg(feature = "counters")]
     {
         eng.counters.layout_passes = eng.counters.layout_passes.saturating_add(1);
     }
-    #[cfg(feature = "counters")]
-    let mut callbacks = 0u64;
-    let _ = eng.taffy.compute_layout_with_measure(
-        root_nid,
-        Size {
-            width: AvailableSpace::Definite(eng.viewport.0),
-            height: AvailableSpace::Definite(eng.viewport.1),
-        },
-        |known, _available, _id, ctx, _style| -> Size<f32> {
-            #[cfg(feature = "counters")]
-            {
-                callbacks = callbacks.saturating_add(1);
-            }
-            measure_leaf(known, ctx)
-        },
-    );
+    let _callbacks = solve_layout(&mut eng.taffy, root_nid, eng.viewport.0, eng.viewport.1);
     #[cfg(feature = "counters")]
     {
-        eng.counters.measure_callbacks = eng.counters.measure_callbacks.saturating_add(callbacks);
+        eng.counters.measure_callbacks = eng.counters.measure_callbacks.saturating_add(_callbacks);
     }
     eng.solved_viewport = Some((eng.viewport.0.to_bits(), eng.viewport.1.to_bits()));
     // Rounding is cumulative: a cached child's pixel rounding can change when
@@ -1328,25 +1334,10 @@ fn solve_regions(tree: &mut Tree, eng: &mut LayoutEngine) {
             {
                 eng.counters.layout_passes = eng.counters.layout_passes.saturating_add(1);
             }
-            #[cfg(feature = "counters")]
-            let mut callbacks = 0u64;
-            let _ = eng.taffy.compute_layout_with_measure(
-                region_root,
-                Size {
-                    width: AvailableSpace::Definite(size.0),
-                    height: AvailableSpace::Definite(size.1),
-                },
-                |known, _available, _id, ctx, _style| -> Size<f32> {
-                    #[cfg(feature = "counters")]
-                    {
-                        callbacks = callbacks.saturating_add(1);
-                    }
-                    measure_leaf(known, ctx)
-                },
-            );
+            let _callbacks = solve_layout(&mut eng.taffy, region_root, size.0, size.1);
             #[cfg(feature = "counters")]
             {
-                eng.counters.measure_callbacks = eng.counters.measure_callbacks.saturating_add(callbacks);
+                eng.counters.measure_callbacks = eng.counters.measure_callbacks.saturating_add(_callbacks);
             }
             eng.regions[index].solved_box = Some(key);
         }
@@ -1415,14 +1406,7 @@ pub fn reference_mismatches(
     let mut out = Vec::new();
     if let Some(root_slot) = tree.resolve(root_id) {
         if let Some(root) = build(tree, styles, fonts, &mut taffy, root_slot, false, &mut counters) {
-            let _ = taffy.compute_layout_with_measure(
-                root,
-                Size {
-                    width: AvailableSpace::Definite(viewport.0),
-                    height: AvailableSpace::Definite(viewport.1),
-                },
-                |known, _available, _id, ctx, _style| -> Size<f32> { measure_leaf(known, ctx) },
-            );
+            solve_layout(&mut taffy, root, viewport.0, viewport.1);
             compare_reference(tree, &taffy, root_slot, (0.0, 0.0), &mut out);
         }
     }
