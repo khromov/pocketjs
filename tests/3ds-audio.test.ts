@@ -62,6 +62,7 @@ describe("3DS audio module", () => {
       "ok stop and pause",
       "ok ring bounds",
       "ok coalescing",
+      "ok sub-grain tail",
       "ok tiny writes",
       "ok volume",
       "ok destroy and reset",

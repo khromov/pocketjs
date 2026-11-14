@@ -34,10 +34,11 @@
  * companion video sound on channel 0. */
 #define POCKET_3DS_AUDIO_FIRST_CHANNEL 8u
 /* Wave buffers per stream. A buffer holds at most WAVEBUF_FRAMES frames,
- * starts and ends on an ALIGN_FRAMES boundary of its ring (except the last
- * one after endStream), and never crosses the ring end. While the DSP holds
- * 2 * MIN_WAVEBUF_FRAMES or more, frames are held until a buffer of
- * MIN_WAVEBUF_FRAMES can be queued. */
+ * starts on an ALIGN_FRAMES boundary of its ring and never crosses the ring
+ * end. It ends on the boundary too, except a buffer that takes the last
+ * copied frames after endStream or while the DSP holds no buffer: streams.rs
+ * plays every frame written. While the DSP holds 2 * MIN_WAVEBUF_FRAMES or
+ * more, frames are held until a buffer of MIN_WAVEBUF_FRAMES can be queued. */
 #define POCKET_3DS_AUDIO_WAVEBUFS 64u
 #define POCKET_3DS_AUDIO_WAVEBUF_FRAMES 1024u
 #define POCKET_3DS_AUDIO_MIN_WAVEBUF_FRAMES 256u

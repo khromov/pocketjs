@@ -11,7 +11,9 @@
  * [done, queued) is with NDSP, [queued, write) is copied but held, and the
  * guest's credit is RING_FRAMES - (write - done): ring space whose frames
  * the DSP has finished. RING_FRAMES divides 2^32, so `pos % RING_FRAMES` and
- * unsigned differences stay right when a position wraps.
+ * unsigned differences stay right when a position wraps. A buffer's span is
+ * its frames plus the ring frames skipped after it so that the next copy
+ * starts on the grain (realign); done advances by spans.
  *
  * The facts the PSP mixer thread publishes (streams.rs) are folded here by
  * observe(), once per frame from pocket_3ds_audio_service(). poll() only
@@ -53,10 +55,12 @@ typedef struct {
   uint32_t write_pos, queued_pos, done_pos;
   /* The free count the guest last saw: credit sets it, writes lower it. */
   uint32_t last_free;
-  /* Wave buffers handed to NDSP and retired; waves[n % WAVEBUFS]. */
+  /* Wave buffers handed to NDSP and retired; waves[n % WAVEBUFS], whose
+   * spans are spans[n % WAVEBUFS]. */
   uint32_t head, tail;
   bool live, playing, end_flagged, starved, underrun_edge, ended_edge;
   ndspWaveBuf waves[WAVEBUFS];
+  uint32_t spans[WAVEBUFS];
 } Stream;
 
 static Stream streams[MAX_STREAMS];
@@ -90,11 +94,16 @@ static uint32_t free_frames(const Stream *stream) {
   return RING_FRAMES - (stream->write_pos - stream->done_pos);
 }
 
-/* An empty ring (nothing copied, nothing with NDSP) moves its positions to
- * the next grain boundary, so the next buffer starts aligned. */
+/* With no frame held, the next copy moves to the next grain boundary, so the
+ * next buffer starts aligned. The skipped frames join the span of the last
+ * buffer with NDSP, or, when NDSP holds none, done moves with them. */
 static void realign(Stream *stream) {
   uint32_t position = align_up(stream->write_pos);
-  stream->write_pos = stream->queued_pos = stream->done_pos = position;
+  if (stream->tail != stream->head)
+    stream->spans[(stream->head - 1u) % WAVEBUFS] += position - stream->write_pos;
+  else
+    stream->done_pos = position;
+  stream->write_pos = stream->queued_pos = position;
 }
 
 /* After ndspChnWaveBufClear or ndspChnReset, which mark every queued buffer
@@ -110,15 +119,17 @@ static void retire(Stream *stream) {
   while (stream->tail != stream->head) {
     ndspWaveBuf *wave = &stream->waves[stream->tail % WAVEBUFS];
     if (__atomic_load_n(&wave->status, __ATOMIC_ACQUIRE) != NDSP_WBUF_DONE) break;
-    stream->done_pos += wave->nsamples;
+    stream->done_pos += stream->spans[stream->tail % WAVEBUFS];
     stream->tail++;
   }
 }
 
 /* Hand copied frames to NDSP while the stream plays. Buffers end on the
  * grain and stop at the ring end; a tail shorter than MIN_WAVEBUF_FRAMES
- * waits while the DSP holds enough, and endStream releases every frame. */
+ * waits while the DSP holds enough. endStream, or a DSP that holds nothing,
+ * releases every frame, as streams.rs's mixer plays every frame written. */
 static void queue(Stream *stream, unsigned slot) {
+  bool release = stream->end_flagged || stream->tail == stream->head;
   while (stream->playing && stream->head - stream->tail < WAVEBUFS) {
     uint32_t pending = stream->write_pos - stream->queued_pos;
     if (pending == 0) return;
@@ -126,7 +137,7 @@ static void queue(Stream *stream, unsigned slot) {
     uint32_t frames = pending;
     if (frames > WAVEBUF_FRAMES) frames = WAVEBUF_FRAMES;
     if (frames > RING_FRAMES - at) frames = RING_FRAMES - at;
-    if (!stream->end_flagged) {
+    if (!release) {
       uint32_t with_dsp = stream->queued_pos - stream->done_pos;
       if (pending < MIN_WAVEBUF_FRAMES && with_dsp >= 2u * MIN_WAVEBUF_FRAMES) return;
       /* Round the end down to the grain; nothing left means wait for more. */
@@ -138,6 +149,7 @@ static void queue(Stream *stream, unsigned slot) {
     memset(wave, 0, sizeof *wave);
     wave->data_pcm16 = stream->ring + (size_t)at * stream->channels;
     wave->nsamples = frames;
+    stream->spans[stream->head % WAVEBUFS] = frames;
     ndspChnWaveBufAdd(channel_of(slot), wave);
     stream->head++;
     stream->queued_pos += frames;
@@ -326,7 +338,7 @@ int32_t pocket_3ds_audio_write_pcm(int32_t handle, const uint8_t *bytes, size_t 
   Stream *stream = stream_of(handle, &slot);
   if (stream == NULL || (bytes == NULL && length != 0)) return 0;
   retire(stream);
-  if (stream->write_pos == stream->done_pos) realign(stream);
+  if (stream->write_pos == stream->queued_pos) realign(stream);
   size_t frame_bytes = 2u * stream->channels;
   size_t frames = length / frame_bytes;
   uint32_t room = free_frames(stream);

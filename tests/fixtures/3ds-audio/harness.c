@@ -121,6 +121,7 @@ typedef struct {
   unsigned count;
   u32 played; /* frames of queue[0] already consumed */
   unsigned adds, clears, resets, ring_end_adds, max_count;
+  unsigned idle_adds; /* adds to a channel that held no buffer */
   uint8_t *out; /* every consumed byte, in order */
   size_t out_len, out_cap;
 } FakeChannel;
@@ -200,6 +201,7 @@ void ndspChnWaveBufAdd(int id, ndspWaveBuf *buf) {
   /* Written back from the cache before NDSP sees it. */
   CHECK(memcmp(ring->real + offset, ring->shadow + offset, bytes) == 0);
   CHECK(c->count < POCKET_3DS_AUDIO_WAVEBUFS);
+  if (c->count == 0) c->idle_adds++;
   buf->status = NDSP_WBUF_QUEUED;
   buf->next = NULL;
   c->queue[c->count++] = buf;
@@ -576,9 +578,15 @@ static void underrun_edges(void) {
   expect(UNDERRUN, t.handle);
   expect(CREDIT, t.handle, RING);
   expect_none();
-  /* Fewer frames than the grain stay held: the DSP still has nothing. */
+  /* Fewer frames than the grain go to the idle DSP and end the episode; the
+   * PSP mixer plays them too. */
   CHECK(send(&t, 10, 0) == 10);
   pocket_3ds_audio_service();
+  expect_none();
+  CHECK(consume(t.channel, 100) == 10);
+  pocket_3ds_audio_service();
+  expect(UNDERRUN, t.handle);
+  expect(CREDIT, t.handle, RING);
   expect_none();
   /* Playing an empty stream underruns once, as on the PSP. */
   Track empty = open_track(44100, 1);
@@ -722,10 +730,11 @@ static void ring_bounds(void) {
   CHECK(consume(t.channel, 6000) == 6000);
   pocket_3ds_audio_service();
   expect(CREDIT, t.handle, RING - 10000 + 5 * 1024);
-  /* This copy wraps the ring end; the buffers stop at it. */
+  /* The idle DSP took all 10000 frames, so this copy starts 48 frames on, at
+   * the grain. It wraps the ring end; the buffers stop at it. */
   CHECK(send(&t, 10000, 0) == 10000);
-  /* Full: 20000 written, 5 * 1024 played. */
-  CHECK(send(&t, 5000, 0) == (int32_t)(RING - (20000 - 5 * 1024)));
+  /* Full: 20000 written, 48 skipped, 5 * 1024 played. */
+  CHECK(send(&t, 5000, 0) == (int32_t)(RING - (20048 - 5 * 1024)));
   pocket_3ds_audio_end_stream(t.handle);
   for (int i = 0; i < 100 && consume(t.channel, 997) > 0; i++) pocket_3ds_audio_service();
   pocket_3ds_audio_service();
@@ -742,26 +751,84 @@ static void coalescing(void) {
   FakeChannel *c = &dsp[t.channel];
   pocket_3ds_audio_play(t.handle);
   unsigned adds = c->adds;
+  /* The idle DSP takes every frame. */
+  CHECK(send(&t, 128, 0) == 128);
+  CHECK(c->adds == adds + 1 && c->queue[0]->nsamples == 128);
   /* Under 2 * MIN_WAVEBUF_FRAMES with the DSP, every whole grain goes out. */
-  CHECK(send(&t, 100, 0) == 100);
-  CHECK(c->adds == adds + 1 && c->queue[0]->nsamples == 64);
-  CHECK(send(&t, 600, 0) == 600);
-  CHECK(c->adds == adds + 2 && c->queue[1]->nsamples == 576);
-  /* With 640 frames queued, 160 pending frames wait for MIN_WAVEBUF_FRAMES. */
-  CHECK(send(&t, 100, 0) == 100);
+  CHECK(send(&t, 300, 0) == 300);
+  CHECK(c->adds == adds + 2 && c->queue[1]->nsamples == 256);
+  /* With 384 frames queued, 44 pending frames wait for a grain. */
+  CHECK(send(&t, 10, 0) == 10);
   CHECK(c->adds == adds + 2);
+  CHECK(send(&t, 200, 0) == 200);
+  CHECK(c->adds == adds + 3 && c->queue[2]->nsamples == 192);
+  /* With 576 frames queued, 62 pending frames wait for MIN_WAVEBUF_FRAMES. */
   CHECK(send(&t, 100, 0) == 100);
-  CHECK(c->adds == adds + 3 && c->queue[2]->nsamples == 256);
-  CHECK(consume(t.channel, 2000) == 896);
-  pocket_3ds_audio_service();
-  CHECK(c->adds == adds + 3); /* 4 frames: less than a grain */
+  CHECK(c->adds == adds + 3);
+  CHECK(send(&t, 100, 0) == 100);
+  CHECK(c->adds == adds + 4 && c->queue[3]->nsamples == 256);
+  /* endStream releases the 6 held frames while the DSP still plays. */
   pocket_3ds_audio_end_stream(t.handle);
-  CHECK(c->adds == adds + 4 && consume(t.channel, 2000) == 4);
+  CHECK(c->adds == adds + 5 && c->queue[4]->nsamples == 6);
+  CHECK(consume(t.channel, 2000) == 838);
   played_all(&t);
   pocket_3ds_audio_service();
   drain();
   close_track(&t);
   printf("ok coalescing\n");
+}
+
+/* streams.rs's mixer plays every frame written: a tail shorter than the grain
+ * plays without endStream once the DSP holds nothing, and the copy after it
+ * starts on the grain again (the mock checks every start). */
+static void sub_grain_tail(void) {
+  rebind();
+  Track t = open_track(11025, 1);
+  CHECK(send(&t, 40, 0) == 40);
+  pocket_3ds_audio_play(t.handle);
+  CHECK(consume(t.channel, 1000) == 40);
+  pocket_3ds_audio_service();
+  expect(UNDERRUN, t.handle);
+  expect(CREDIT, t.handle, RING);
+  expect_none();
+  played_all(&t);
+  close_track(&t);
+  forget_output();
+
+  Track s = open_track(22050, 2);
+  CHECK(send(&s, 1000, 0) == 1000);
+  pocket_3ds_audio_play(s.handle);
+  CHECK(dsp[s.channel].count == 1 && dsp[s.channel].queue[0]->nsamples == 1000);
+  CHECK(consume(s.channel, 500) == 500);
+  /* The next copy skips to frame 1024: the 24 frames between count as used
+   * until the 1000-frame buffer retires. */
+  CHECK(send(&s, 300, 0) == 300);
+  CHECK(dsp[s.channel].count == 2 && dsp[s.channel].queue[1]->nsamples == 256);
+  pocket_3ds_audio_service();
+  expect(CREDIT, s.handle, RING - 1324);
+  expect_none();
+  CHECK(consume(s.channel, 2000) == 756);
+  /* The DSP ran dry: the 44 held frames go out at the next service. */
+  pocket_3ds_audio_service();
+  expect(CREDIT, s.handle, RING - 44);
+  expect_none();
+  CHECK(consume(s.channel, 2000) == 44);
+  pocket_3ds_audio_service();
+  expect(UNDERRUN, s.handle);
+  expect(CREDIT, s.handle, RING);
+  expect_none();
+  played_all(&s);
+  /* A whole ring after the skip still fits, and plays in order. */
+  CHECK(send(&s, RING, 0) == (int32_t)RING);
+  pocket_3ds_audio_end_stream(s.handle);
+  while (consume(s.channel, 997) > 0) pocket_3ds_audio_service();
+  pocket_3ds_audio_service();
+  expect(ENDED, s.handle);
+  expect(CREDIT, s.handle, RING);
+  expect_none();
+  played_all(&s);
+  close_track(&s);
+  printf("ok sub-grain tail\n");
 }
 
 static void tiny_writes(void) {
@@ -785,8 +852,9 @@ static void tiny_writes(void) {
   pocket_3ds_audio_service();
   played_all(&t);
   CHECK(t.sent_len == (size_t)total * 2);
-  /* Every buffer but the last holds a grain or more. */
-  CHECK(dsp[t.channel].adds - adds <= total / ALIGN + 1);
+  /* A buffer shorter than the grain takes the last copied frames: one after
+   * endStream, and at most one a time the DSP ran dry. */
+  CHECK(dsp[t.channel].adds - adds <= total / ALIGN + 1 + dsp[t.channel].idle_adds);
   bool ended = false;
   for (const char *e = next_event(); e != NULL; e = next_event()) {
     char wanted[64];
@@ -805,7 +873,9 @@ static void tiny_writes(void) {
   pocket_3ds_audio_play(full.handle);
   dsp[full.channel].paused = true; /* the DSP stalls; the module still plays */
   for (unsigned i = 0; i < 300; i++) send(&full, 55, 0);
-  CHECK(full.sent_len == (size_t)RING * 4);
+  /* The first 55 frames went to the idle DSP and the next copy starts at the
+   * grain, 9 frames on; those stay used while the DSP stalls. */
+  CHECK(full.sent_len == (size_t)(RING - 9) * 4);
   CHECK(dsp[full.channel].max_count == POCKET_3DS_AUDIO_WAVEBUFS);
   dsp[full.channel].paused = false;
   pocket_3ds_audio_end_stream(full.handle);
@@ -953,6 +1023,7 @@ static void suite(void) {
   stop_and_pause();
   ring_bounds();
   coalescing();
+  sub_grain_tail();
   tiny_writes();
   volume();
   destroy_and_reset();

@@ -741,7 +741,11 @@ stereo PCM16 with linear interpolation. `platforms/3ds/media.c` plays
 companion video sound on channel 0. Each stream has a **16384-frame ring in
 linear memory** (64 KiB a stream), allocated at the first audio guest's bind
 and kept until the process exits; wave buffers point into the ring without a
-copy. There is no audio thread: the main loop calls
+copy. Each wave buffer starts on a **64-frame boundary** of its ring. **A DSP
+with no buffer queued takes every copied frame**, as the PSP mixer plays every
+frame written; the next copy starts at the next boundary, and the frames
+skipped to reach it count against the guest's credit until that buffer
+finishes. There is no audio thread: the main loop calls
 `pocket_3ds_audio_service()` once per presented frame, before the guest's
 frame, to retire played buffers, queue held frames and record the underrun
 and ended facts that `poll()` reports. Handles, refusals, `writePcm`'s
