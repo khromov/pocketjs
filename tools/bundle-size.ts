@@ -10,10 +10,11 @@
 //   * Bun.build gets `root: process.cwd()` (tools/build.ts:531), and the module
 //     markers this tool attributes bytes from are emitted relative to that root.
 //
-// Every build passes --framework explicitly: tools/build.ts:187-191 reads the
-// framework from pocket.config.ts (default "solid"), NOT from apps/<app>/pocket.json.
-// An omitted flag silently produces a Solid build under a Svelte-looking name,
-// which is why dist/ cannot be used as evidence and why assertRuntime() exists.
+// Every build passes --framework explicitly: without the flag tools/build.ts
+// (lines 177-179) takes app.framework from the app's pocket.app.json, and every
+// twin demo's manifest says "solid", so an omitted flag builds the Solid variant.
+// Plan-driven builds into dist/ also drop the framework suffix, which is why
+// dist/ cannot be used as evidence and why assertRuntime() exists.
 
 import { existsSync, mkdirSync, rmSync, statSync } from "node:fs";
 import { join, resolve as resolvePath } from "node:path";
@@ -520,7 +521,7 @@ Three sizes per bundle:
 
 | Column | Meaning |
 | --- | --- |
-| raw | bytes as built. \`Bun.build\` runs with \`minify: false\` (\`tools/build.ts:555\`), nothing downstream minifies or compresses, and the PSP host reads the \`.js\` into the binary (\`hosts/psp/build.rs:98\`) and hands those bytes to \`JS_Eval\` (\`hosts/psp/src/main.rs:570\`) — **this is what ships**, and it is the same \`bundle_bytes\` the device reports in \`docs/bench/\` |
+| raw | bytes as built. \`Bun.build\` runs with \`minify\` off unless \`POCKETJS_MINIFY=1\` (\`tools/build.ts:584\`), nothing downstream minifies or compresses, the \`.pocket\` package carries the bundle bytes NUL-terminated (\`contracts/spec/pocket-package.ts\`), the PSP build embeds that package in the EBOOT (\`programs/psp/build.rs\`), and the guest hands those bytes to \`JS_Eval\` (\`engine/guest-quickjs/src/guest.c\`) — **this is what ships**, and it is the same \`bundle_bytes\` the device reports in \`docs/bench/\` |
 | min | the built IIFE put back through \`Bun.build({ minify: true })\`. No PocketJS target does this today |
 | gzip | gzip -9 of the minified bytes. No PocketJS target transfers the bundle compressed either |
 
@@ -646,7 +647,7 @@ ${contaminated.length > 0 ? contaminated.map((r) => `- **\`${r.demo}\` under ${L
 - **Bundle size is one axis.** It says nothing about frame time or node count. For
   runtime cost see \`docs/bench/three-frameworks-ppsspp-2026-07-30.md\`.
 - **Build parameters:** no \`--plan\`, so raster density 1 and 60 Hz. \`apps/motions\`
-  supplies its own \`pocket.config.ts\`, which wins over the root config for both of
-  its variants equally.
+  declares \`app.theme\` (\`./theme.ts\`) in its \`pocket.app.json\`, which both of its
+  variants bake.
 ${failures.length > 0 ? `- **${failures.length} build(s) failed** and are recorded as gaps in the tables:\n` + failures.map((f) => `  \`${f.demo}\` (${f.framework}): ${f.error.split("\n")[0]}`).join("\n") + "\n" : ""}${unclassified.length > 0 ? `- **Unclassified modules** landed in no bucket: ${unclassified.map((u) => "`" + u + "`").join(", ")}.\n` : ""}${fellBack.length > 0 ? `- **Normalisation fell back to raw bytes** for: ${fellBack.map((r) => `${r.demo}/${r.framework} (${r.attribution.fellBack.join(", ")})`).join("; ")}.\n` : ""}`;
 }

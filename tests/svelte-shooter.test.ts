@@ -104,7 +104,8 @@ describe("Svelte shooter", () => {
 
   test("a host with an auxiliary surface gets the HUD on the second screen", async () => {
     // The 3DS shape: a 400x240 primary and a host-created 320x240 auxiliary
-    // root, published the way hosts/3ds does. The DevTools tree carries both
+    // root, published as ui.__auxiliarySurface the way the 3DS guest does
+    // (engine/guest-quickjs/src/guest.c). The DevTools tree carries both
     // roots, so the bottom-screen legend proves which branch mounted.
     const world = await bootWorld(
       APP,
