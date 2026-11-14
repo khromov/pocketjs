@@ -11,7 +11,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { BTN } from "../contracts/spec/spec.ts";
-import { prepareIsolatedLauncherSource, scanDisplayRegistry, scanRegistry, withLauncherSourceLock } from "../tools/launcher.ts";
+import { launcherExcludes, prepareIsolatedLauncherSource, PSP_STANDALONE_OUTPUTS, scanDisplayRegistry, scanRegistry, withLauncherSourceLock } from "../tools/launcher.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
 import { bootLauncherWorld, type LauncherWorld } from "../programs/sim/launcher.ts";
 import { bootWorld, treeHasText } from "../programs/sim/sim.ts";
@@ -61,6 +61,17 @@ describe("launcher registry admission", () => {
     ).toContain("yui540");
     // One entry per output (the root manifest duplicates apps/hero).
     expect(new Set(outputs).size).toBe(outputs.length);
+  });
+
+  test("the PSP deck leaves out the standalone EBOOT apps; the display registry keeps them", () => {
+    expect([...PSP_STANDALONE_OUTPUTS]).toEqual(["wolfensvelte-main"]);
+    const excludes = launcherExcludes(new Set(["cafe-main"]), "psp");
+    expect([...excludes].sort()).toEqual(["cafe-main", "wolfensvelte-main"]);
+    expect([...launcherExcludes(new Set(["cafe-main"]), "vita")]).toEqual(["cafe-main"]);
+    const deck = scanRegistry(launcherExcludes(new Set(), "psp")).apps.map((app) => app.output);
+    expect(deck).not.toContain("wolfensvelte-main");
+    expect(deck).toContain("svelte-shooter-main");
+    expect(scanDisplayRegistry(new Set()).apps.map((app) => app.output)).toContain("wolfensvelte-main");
   });
 
   test("every entry carries id + title for the deck", () => {

@@ -10,8 +10,8 @@
 // script points those manifests at their Svelte entries for the pack step,
 // without app.aot and app.model (they select the Solid compile), and writes the
 // original bytes back in a finally block and on SIGINT/SIGTERM. Every app with
-// no Svelte entry is excluded, and so are the demos in STANDALONE_OUTPUTS,
-// which ship as their own EBOOTs.
+// no Svelte entry is excluded, and so are the demos in tools/launcher.ts's
+// PSP_STANDALONE_OUTPUTS, which ship as their own EBOOTs.
 //
 // The steps are the ones `tools/launcher.ts build --target psp` runs, with two
 // changes after its `pack` step:
@@ -40,6 +40,7 @@ import { homedir } from "node:os";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { bakeSvg } from "../framework/compiler/bake-svg.ts";
+import { PSP_STANDALONE_OUTPUTS } from "./launcher.ts";
 import { encodePNG } from "../tests/png.ts";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -104,17 +105,9 @@ const apps = readdirSync(APPS, { withFileTypes: true })
     }];
   });
 
-/**
- * Demos that ship as their own EBOOT (`bun tools/psp.ts <app> --release`,
- * staged under dist/psp/PSP/GAME/<Title>/) and stay out of the gallery.
- * Wolfensvelte carries its wall textures and two music tracks in its pak,
- * which would put most of the gallery's bytes behind one deck entry.
- */
-const STANDALONE_OUTPUTS: ReadonlySet<string> = new Set(["wolfensvelte-main"]);
-
 const demos = apps.filter(
   (a) =>
-    a.output !== SHELL_OUTPUT && (a.variant || a.declared) && !STANDALONE_OUTPUTS.has(a.output),
+    a.output !== SHELL_OUTPUT && (a.variant || a.declared) && !PSP_STANDALONE_OUTPUTS.has(a.output),
 );
 const excluded = apps.filter((a) => a.output !== SHELL_OUTPUT && !demos.includes(a));
 
@@ -222,7 +215,7 @@ console.log(`psp-svelte: ${demos.length} Svelte demo(s): ${demos.map((a) => a.ou
 console.log(`psp-svelte: shell ${SHELL_OUTPUT} (${svelteShell ? "svelte" : "solid"})`);
 console.log(
   `psp-svelte: excluding ${excluded.length} app(s)` +
-    ` (${excluded.filter((a) => STANDALONE_OUTPUTS.has(a.output)).length} standalone, the rest non-Svelte)`,
+    ` (${excluded.filter((a) => PSP_STANDALONE_OUTPUTS.has(a.output)).length} standalone, the rest non-Svelte)`,
 );
 
 const env = { ...process.env };

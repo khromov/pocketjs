@@ -472,6 +472,25 @@ function scanRegistryForTarget(
   return { apps };
 }
 
+/**
+ * Apps the PSP launcher never embeds; each ships as its own EBOOT
+ * (`bun tools/psp.ts <app> --release`). The PSP EBOOT keeps every embedded
+ * package in memory for the life of the program (docs/PACKS.md), and
+ * Wolfensvelte's package (wall textures and two music tracks, about 9 MB)
+ * would take most of that budget. The display registry still lists them, as
+ * it lists apps another target admits; appTable() reports what is embedded.
+ */
+export const PSP_STANDALONE_OUTPUTS: ReadonlySet<string> = new Set(["wolfensvelte-main"]);
+
+/** The outputs a `target` scan, pack and build leave out: the --exclude
+ *  arguments, plus PSP_STANDALONE_OUTPUTS for the PSP. */
+export function launcherExcludes(
+  exclude: ReadonlySet<string>,
+  target: LauncherTarget,
+): ReadonlySet<string> {
+  return target === "psp" ? new Set([...exclude, ...PSP_STANDALONE_OUTPUTS]) : exclude;
+}
+
 /** Admission sweep: every app pocket.app.json that resolves for the target. */
 export function scanRegistry(
   exclude: ReadonlySet<string>,
@@ -1273,7 +1292,7 @@ async function main(): Promise<void> {
       `launcher: scanning apps/*/pocket.app.json against target ${target}`,
     );
     const registry = includeExternalManifests(
-      scanRegistry(exclude, target),
+      scanRegistry(launcherExcludes(exclude, target), target),
       externalManifests,
       exclude,
       target,

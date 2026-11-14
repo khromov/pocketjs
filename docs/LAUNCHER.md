@@ -50,7 +50,10 @@ capabilities and viewport fit, using the same resolver as `pocket compile`.
 **PSP and Vita select separate app sets from their host contracts.** The
 registry tool prints each skipped app's diagnostics and each admitted app's
 bundle size. `--exclude <output>` removes an app from the selected set for
-RAM budgeting.
+RAM budgeting. **The PSP set also leaves out `PSP_STANDALONE_OUTPUTS` in
+`tools/launcher.ts`** (`wolfensvelte-main`, a package of about 9 MB): those
+apps ship as their own EBOOT. The committed display registry keeps listing
+them, as it lists apps only another target admits.
 
 ## Memory math (PSP-1000 floor)
 
