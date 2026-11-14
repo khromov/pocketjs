@@ -39,14 +39,16 @@
 // Manifests are committed files. tools/build.ts reads the manifest next to the
 // entry to check the plan's compiler settings, so the rewrite has to be the
 // file at apps/<app>/pocket.app.json. This script rewrites it for the duration
-// of one build and restores it in a finally block (and on SIGINT/SIGTERM), so
-// nothing here may outlive the process.
+// of one build through tools/manifest-rewrites.ts: under the checkout's
+// manifest lock, journaled, and restored when the build ends, fails or is
+// interrupted (SIGINT, SIGTERM, SIGHUP).
 
 import { $ } from "bun";
-import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { THREE_DS_AUXILIARY_VIEWPORT, THREE_DS_VIEWPORT } from "./3ds-profile.ts";
+import { withManifestRewrites } from "./manifest-rewrites.ts";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const APPS = join(ROOT, "apps");
@@ -188,19 +190,6 @@ async function main(argv: readonly string[]): Promise<void> {
   }
   if (demos.length === 0) throw new Error("3ds-svelte: no Svelte-capable demos found under apps/");
 
-  const backups = new Map<string, string>();
-  const restore = (): void => {
-    for (const [path, original] of backups) writeFileSync(path, original);
-    if (backups.size > 0) console.log(`3ds-svelte: restored ${backups.size} manifest(s)`);
-    backups.clear();
-  };
-  for (const signal of ["SIGINT", "SIGTERM"] as const) {
-    process.on(signal, () => {
-      restore();
-      process.exit(1);
-    });
-  }
-
   console.log(`3ds-svelte: ${demos.length} demo(s): ${demos.map((a) => a.name).join(", ")}`);
   if (selected.size === 0 && shell.length > 0) {
     console.log(`3ds-svelte: excluding ${SHELL_OUTPUT} (no 3ds target in tools/launcher.ts)`);
@@ -208,13 +197,11 @@ async function main(argv: readonly string[]): Promise<void> {
 
   const built: string[] = [];
   const failed: { name: string; error: string }[] = [];
-  try {
+  await withManifestRewrites("3ds-svelte", async (rewrites) => {
     for (const app of demos) {
       const path = manifestPath(app.name);
-      const original = readFileSync(path, "utf8");
-      backups.set(path, original);
-      const next = threeDsSvelteManifest(JSON.parse(original) as Manifest, app.variant);
-      writeFileSync(path, JSON.stringify(next, null, 2) + "\n");
+      const next = threeDsSvelteManifest(JSON.parse(readFileSync(path, "utf8")) as Manifest, app.variant);
+      rewrites.rewrite(path, JSON.stringify(next, null, 2) + "\n");
 
       console.log(
         `\n3ds-svelte: ${app.name} (${next.app.entry}) -> ` +
@@ -235,8 +222,7 @@ async function main(argv: readonly string[]): Promise<void> {
         failed.push({ name: app.name, error: lines.findLast((l) => l.trim() !== "") ?? "" });
         continue;
       } finally {
-        writeFileSync(path, original);
-        backups.delete(path);
+        rewrites.restore(path);
       }
       for (const line of log.split("\n")) {
         if (line.includes("presents at")) console.log(`  ${line.trim()}`);
@@ -257,9 +243,7 @@ async function main(argv: readonly string[]): Promise<void> {
       }
       built.push(`${app.name} -> dist/3ds/${app.output}.3dsx`);
     }
-  } finally {
-    restore();
-  }
+  });
 
   console.log(`\n3ds-svelte: built ${built.length}/${demos.length}`);
   for (const line of built) console.log(`  ${line}`);

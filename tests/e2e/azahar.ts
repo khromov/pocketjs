@@ -39,6 +39,7 @@ import { homedir } from "node:os";
 import { demoManifestFor } from "../../tools/demo-identity.ts";
 import { THREE_DS_VIEWPORT } from "../../tools/3ds-profile.ts";
 import { threeDsSvelteManifest, type Manifest } from "../../tools/3ds-svelte.ts";
+import { withManifestRewrites } from "../../tools/manifest-rewrites.ts";
 import { encodePNG } from "../png.ts";
 import {
   encodeThresholdInput,
@@ -344,14 +345,13 @@ for (const spec of specs) {
     //
     // A Svelte demo's committed manifest describes the PSP (480x272); the
     // 3ds-dev profile rejects it at admission, so the build sees the same
-    // rewritten manifest tools/3ds-svelte.ts uses, restored afterwards.
+    // rewritten manifest tools/3ds-svelte.ts uses, under the same lock and
+    // journal (tools/manifest-rewrites.ts), restored afterwards.
     const manifestPath = `${ROOT}apps/${demo}/pocket.app.json`;
-    const originalManifest = readFileSync(manifestPath, "utf8");
-    const rewritten = threeDsManifestFor(originalManifest);
-    if (rewritten) writeFileSync(manifestPath, rewritten);
-    let build;
-    try {
-      build = await $`bun tools/3ds.ts ${demo} --capture`
+    const build = await withManifestRewrites("azahar", async (rewrites) => {
+      const rewritten = threeDsManifestFor(readFileSync(manifestPath, "utf8"));
+      if (rewritten) rewrites.rewrite(manifestPath, rewritten);
+      return await $`bun tools/3ds.ts ${demo} --capture`
         .cwd(ROOT)
         .env({
           ...process.env,
@@ -364,9 +364,7 @@ for (const spec of specs) {
         })
         .quiet()
         .nothrow();
-    } finally {
-      if (rewritten) writeFileSync(manifestPath, originalManifest);
-    }
+    });
     if (build.exitCode !== 0) {
       console.error(`FAIL ${spec.name}: 3DS build failed\n${build.stdout}${build.stderr}`);
       failed += spec.capture.length;
