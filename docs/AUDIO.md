@@ -14,7 +14,7 @@ audio spec: ops (createStream, writePcm, play, …)
             events (credit, underrun, ended — via poll())
             data contract (s16 interleaved PCM · audio:wav.* pak entries)
             frame contract (native clock, tick-batched facts)
-SDK: @pocketjs/framework/audio (decodeWav, createWavPlayer)
+SDK: @pocketjs/framework/audio (openWav, decodeWav, decodeImaAdpcm, createWavPlayer)
     ↓
 app: apps/music — track state, UI, and a pump() call per frame Guest
 ```
@@ -84,11 +84,27 @@ change.
 
 WAV files ship in the app pak under `audio:wav.<name>` via the raw-blob
 `pak.json` route (`apps/music/pak.json`), spliced verbatim at build time and
-parsed guest-side by `decodeWav` (RIFF walk, PCM16 only, rates as above —
-anything else throws at decode time). `apps/music/gen-assets.ts`
-deterministically synthesizes the demo's three original 5-second tracks;
-`tests/audio.test.ts` pins their SHA-256. Raw-PCM entries and codec
-registration are deliberately deferred until a second format needs them.
+opened guest-side by `openWav` (RIFF walk, rates as above — anything else
+throws at decode time). An entry takes one of two shapes:
+
+- **16-bit PCM** (`audioFormat` 1). `decodeWav` returns a view over the pak
+  bytes. `apps/music/gen-assets.ts` deterministically synthesizes the demo's
+  three original 5-second tracks; `tests/audio.test.ts` pins their SHA-256.
+- **4-bit IMA ADPCM** (`audioFormat` 0x11, the Microsoft/DVI block layout),
+  **a little over a quarter of the PCM size**. `decodeImaAdpcm` decodes
+  nothing up front: each `read()` extends the decode of the current block to
+  the frames it returns, so a playing track costs the frames it plays and
+  its s16 form never exists whole. The expansion is two table reads and a
+  clamp per sample; on the host's QuickJS build the Wolfensvelte E1M1 track
+  (11 025 Hz mono) decodes in **about 0.75 ms per second of audio, 25 µs per
+  30 Hz frame**. `framework/compiler/ima-adpcm.ts` encodes it at build time,
+  with an optional beam search over code sequences (`search`, 16 for
+  Wolfensvelte's music: **+1.5 to +1.8 dB SNR** over the plain quantizer).
+  `tests/ima-adpcm.test.ts` checks the decoder sample for sample against
+  ffmpeg's `adpcm_ima_wav` when ffmpeg is installed.
+
+The hosts receive s16 PCM through `writePcm` for both shapes; no host decodes
+a codec.
 
 ## Streaming and sound effects
 
@@ -137,6 +153,7 @@ break exactly this; don't.
 
 ## Deferred
 
-Host-level mixing across runtimes, codec registration, raw-PCM pak entries,
-and runtime capability negotiation are all deferred until their trigger
-conditions exist. The spec grows append-only when they do.
+Host-level mixing across runtimes, host-side codecs, codec registration
+beyond the two WAV shapes, raw-PCM pak entries, and runtime capability
+negotiation are all deferred until their trigger conditions exist. The spec
+grows append-only when they do.

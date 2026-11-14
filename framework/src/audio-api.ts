@@ -4,7 +4,9 @@
 //
 // Layering (the tiles.ts shape, one level up):
 //   WAV bytes in the app pak (audio:wav.<name>, raw-blob pak.json route)
-//     -> decodeWav()               guest-side RIFF parse, cold path, once
+//     -> openWav()                 guest-side RIFF parse, cold path, once:
+//                                  a 16-bit PCM view (decodeWav) or an IMA
+//                                  ADPCM block decoder (decodeImaAdpcm)
 //     -> createWavPlayer()         credit-driven pump over the audio ops
 //     -> globalThis.audio          the mounted module namespace (or absent)
 //
@@ -15,11 +17,14 @@
 // the app's tick-driven UI is byte-identical either way.
 
 import {
+  AUDIO_IMA_INDEX,
+  AUDIO_IMA_STEP,
   AUDIO_INPUT_SOURCE,
   AUDIO_MAX_CHANNELS,
   AUDIO_PAK_WAV_PREFIX,
   AUDIO_RATES,
   AUDIO_RING_FRAMES,
+  AUDIO_WAV_FORMAT,
   type AudioInputSource,
 } from "../../contracts/spec/audio.ts";
 import { get as pakGet, hasPack } from "./pak.ts";
@@ -80,6 +85,7 @@ function fourcc(v: DataView, off: number): number {
 const RIFF = 0x46464952; // "RIFF"
 const WAVE = 0x45564157; // "WAVE"
 const FMT_ = 0x20746d66; // "fmt "
+const FACT = 0x74636166; // "fact"
 const DATA = 0x61746164; // "data"
 
 /**
@@ -136,6 +142,223 @@ export function decodeWav(bytes: Uint8Array): WavPcm {
 }
 
 // ---------------------------------------------------------------------------
+// IMA ADPCM (audioFormat 0x11): the second audio:wav.* shape, 4 bits a sample
+// ---------------------------------------------------------------------------
+
+/** A track that decodes on demand. */
+export interface WavStream {
+  readonly sampleRate: number;
+  readonly channels: number;
+  /** Sample frames (samples per channel). */
+  readonly frames: number;
+  /** Interleaved s16 for frames [frame, frame + count), in a new array. */
+  read(frame: number, count: number): Int16Array;
+}
+
+/** What a WavPlayer plays: a PCM view or an on-demand decoder. */
+export type WavTrack = WavPcm | WavStream;
+
+// The expansion depends only on (step index, code): IMA_DELTA[(index << 4) |
+// code] is the signed predictor change and IMA_NEXT the next step index, so a
+// sample costs two table reads and a clamp in the interpreter.
+const IMA_DELTA = new Int32Array(89 * 16);
+const IMA_NEXT = new Uint8Array(89 * 16);
+for (let index = 0; index < 89; index++) {
+  const step = AUDIO_IMA_STEP[index]!;
+  for (let code = 0; code < 16; code++) {
+    let diff = step >> 3;
+    if (code & 4) diff += step;
+    if (code & 2) diff += step >> 1;
+    if (code & 1) diff += step >> 2;
+    IMA_DELTA[(index << 4) | code] = code & 8 ? -diff : diff;
+    IMA_NEXT[(index << 4) | code] = Math.min(88, Math.max(0, index + AUDIO_IMA_INDEX[code]!));
+  }
+}
+
+/**
+ * Open an IMA ADPCM WAV (contracts/spec/audio.ts). Nothing is decoded here:
+ * read() expands the blocks it touches into one block-sized cache, so a
+ * sequential reader decodes every block once and the track's s16 form never
+ * exists whole. The bytes are read in place (a pak view stays a view).
+ */
+export function decodeImaAdpcm(bytes: Uint8Array): WavStream {
+  const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (bytes.byteLength < 12 || fourcc(v, 0) !== RIFF || fourcc(v, 8) !== WAVE) {
+    throw new Error("audio: not a RIFF/WAVE file");
+  }
+  let format = -1;
+  let channels = 0;
+  let sampleRate = 0;
+  let blockAlign = 0;
+  let bits = 0;
+  let declaredPerBlock = -1;
+  let factFrames = -1;
+  let dataOff = -1;
+  let dataLen = 0;
+  for (let off = 12; off + 8 <= bytes.byteLength; ) {
+    const id = fourcc(v, off);
+    const size = v.getUint32(off + 4, true);
+    if (id === FMT_ && size >= 16) {
+      format = v.getUint16(off + 8, true);
+      channels = v.getUint16(off + 10, true);
+      sampleRate = v.getUint32(off + 12, true);
+      blockAlign = v.getUint16(off + 20, true);
+      bits = v.getUint16(off + 22, true);
+      if (size >= 20 && v.getUint16(off + 24, true) >= 2) declaredPerBlock = v.getUint16(off + 26, true);
+    } else if (id === FACT && size >= 4) {
+      factFrames = v.getUint32(off + 8, true);
+    } else if (id === DATA) {
+      dataOff = off + 8;
+      dataLen = Math.min(size, bytes.byteLength - dataOff);
+    }
+    off += 8 + size + (size & 1);
+  }
+  if (format !== AUDIO_WAV_FORMAT.imaAdpcm || bits !== 4) {
+    throw new Error(`audio: not a 4-bit IMA ADPCM WAV (format ${format}, ${bits} bits)`);
+  }
+  if (dataOff < 0) throw new Error("audio: WAV has no data chunk");
+  if (channels < 1 || channels > AUDIO_MAX_CHANNELS) {
+    throw new Error(`audio: WAV must be mono or stereo (${channels} channels)`);
+  }
+  if (!(AUDIO_RATES as readonly number[]).includes(sampleRate)) {
+    throw new Error(`audio: WAV rate ${sampleRate} not in [${AUDIO_RATES.join(", ")}]`);
+  }
+  const header = 4 * channels;
+  if (blockAlign <= header || (blockAlign - header) % header !== 0) {
+    throw new Error(`audio: IMA ADPCM block of ${blockAlign} bytes does not fit ${channels} channel(s)`);
+  }
+  const perBlock = ((blockAlign - header) * 2) / channels + 1;
+  if (declaredPerBlock >= 0 && declaredPerBlock !== perBlock) {
+    throw new Error(`audio: IMA ADPCM declares ${declaredPerBlock} samples a block, its layout holds ${perBlock}`);
+  }
+  // Frames the data chunk holds: whole blocks, plus a short last block's
+  // header sample and its whole 4-byte groups.
+  const whole = Math.floor(dataLen / blockAlign);
+  const rest = dataLen - whole * blockAlign;
+  const held = whole * perBlock + (rest >= header ? 1 + Math.floor((rest - header) / header) * 8 : 0);
+  const frames = factFrames >= 0 ? Math.min(factFrames, held) : held;
+
+  const cache = new Int16Array(perBlock * channels);
+  // The cache holds the current block's frames [0, decoded); `predictors` and
+  // `indexes` are each channel's decoder state at frame `decoded`. A read
+  // extends the decode only to the frames it returns, so a sequential reader
+  // pays per frame it plays (on the PSP a whole 2041-frame block in one read
+  // would cost a frame-sized spike).
+  let cached = -1;
+  let decoded = 0;
+  let groups = 0; // first group byte of the current block
+  const predictors = new Int32Array(channels);
+  const indexes = new Int32Array(channels);
+
+  function openBlock(block: number): void {
+    const start = dataOff + block * blockAlign;
+    for (let c = 0; c < channels; c++) {
+      const h = start + c * 4;
+      const predictor = ((bytes[h]! | (bytes[h + 1]! << 8)) << 16) >> 16;
+      const index = bytes[h + 2]!;
+      if (index > 88) throw new Error(`audio: IMA ADPCM step index ${index} out of range`);
+      cache[c] = predictor;
+      predictors[c] = predictor;
+      indexes[c] = index;
+    }
+    cached = block;
+    decoded = 1;
+    groups = start + header;
+  }
+
+  function decodeTo(target: number): void {
+    if (channels === 1) {
+      // Mono: the groups are consecutive, two samples a byte, low nibble first.
+      let predictor = predictors[0]!;
+      let index = indexes[0]!;
+      for (let k = decoded; k < target; k++) {
+        const j = k - 1;
+        const byte = bytes[groups + (j >> 1)]!;
+        const at = (index << 4) | (j & 1 ? byte >> 4 : byte & 15);
+        predictor += IMA_DELTA[at]!;
+        if (predictor > 32767) predictor = 32767;
+        else if (predictor < -32768) predictor = -32768;
+        index = IMA_NEXT[at]!;
+        cache[k] = predictor;
+      }
+      predictors[0] = predictor;
+      indexes[0] = index;
+      decoded = target;
+      return;
+    }
+    for (let c = 0; c < channels; c++) {
+      let predictor = predictors[c]!;
+      let index = indexes[c]!;
+      const lane = groups + c * 4;
+      for (let k = decoded; k < target; k++) {
+        const j = k - 1; // sample j of this channel after the header
+        const byte = bytes[lane + (j >> 3) * header + ((j & 7) >> 1)]!;
+        const at = (index << 4) | (j & 1 ? byte >> 4 : byte & 15);
+        predictor += IMA_DELTA[at]!;
+        if (predictor > 32767) predictor = 32767;
+        else if (predictor < -32768) predictor = -32768;
+        index = IMA_NEXT[at]!;
+        cache[k * channels + c] = predictor;
+      }
+      predictors[c] = predictor;
+      indexes[c] = index;
+    }
+    decoded = target;
+  }
+
+  return {
+    sampleRate,
+    channels,
+    frames,
+    read(frame: number, count: number): Int16Array {
+      const out = new Int16Array(count * channels);
+      const end = Math.min(frame + count, frames);
+      let f = frame;
+      let o = 0;
+      while (f < end) {
+        const block = Math.floor(f / perBlock);
+        if (block !== cached) openBlock(block);
+        const first = f - block * perBlock;
+        const n = Math.min(end - f, perBlock - first);
+        if (first + n > decoded) decodeTo(first + n);
+        out.set(cache.subarray(first * channels, (first + n) * channels), o);
+        o += n * channels;
+        f += n;
+      }
+      return out;
+    },
+  };
+}
+
+/** The `fmt ` audioFormat of a RIFF/WAVE file, or -1. */
+function wavFormat(bytes: Uint8Array): number {
+  const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (bytes.byteLength < 12 || fourcc(v, 0) !== RIFF || fourcc(v, 8) !== WAVE) return -1;
+  for (let off = 12; off + 8 <= bytes.byteLength; ) {
+    const size = v.getUint32(off + 4, true);
+    if (fourcc(v, off) === FMT_ && size >= 2) return v.getUint16(off + 8, true);
+    off += 8 + size + (size & 1);
+  }
+  return -1;
+}
+
+/**
+ * Open any audio:wav.* entry (the reference decoder for the data contract):
+ * 16-bit PCM becomes a view (decodeWav), IMA ADPCM an on-demand decoder
+ * (decodeImaAdpcm). Anything else throws.
+ */
+export function openWav(bytes: Uint8Array): WavTrack {
+  return wavFormat(bytes) === AUDIO_WAV_FORMAT.imaAdpcm ? decodeImaAdpcm(bytes) : decodeWav(bytes);
+}
+
+/** Interleaved s16 for frames [frame, frame + count) of either track kind, in a new array. */
+function trackFrames(track: WavTrack, frame: number, count: number): Int16Array {
+  if ("read" in track) return track.read(frame, count);
+  const ch = track.channels;
+  return track.data.slice(frame * ch, (frame + count) * ch);
+}
+
+// ---------------------------------------------------------------------------
 // WavPlayer — credit-driven pump, one track at a time
 // ---------------------------------------------------------------------------
 
@@ -149,11 +372,12 @@ export interface WavPlayerStats {
 }
 
 export interface WavPlayer {
-  /** Load `audio:wav.<name>` from the pak (or pass decoded PCM directly).
+  /** Load `audio:wav.<name>` from the pak (or pass an opened track directly:
+   *  PCM from decodeWav, IMA ADPCM from decodeImaAdpcm, either from openWav).
    *  Destroys the previous track's stream. False if the module is absent,
    *  the pak entry is missing, or the stream was refused. */
   load(name: string): boolean;
-  loadPcm(pcm: WavPcm): boolean;
+  loadPcm(pcm: WavTrack): boolean;
   play(): void;
   pause(): void;
   toggle(): void;
@@ -201,7 +425,7 @@ function drainEvents(ns: AudioOps): void {
 }
 
 export function createWavPlayer(): WavPlayer {
-  let pcm: WavPcm | null = null;
+  let pcm: WavTrack | null = null;
   let handle = -1;
   let cursor = 0; // frames written so far
   let free = AUDIO_RING_FRAMES; // guest mirror of ring space (credit resets it)
@@ -231,7 +455,7 @@ export function createWavPlayer(): WavPlayer {
     handle = -1;
   }
 
-  function loadPcm(next: WavPcm): boolean {
+  function loadPcm(next: WavTrack): boolean {
     dropStream();
     pcm = next;
     cursor = 0;
@@ -271,7 +495,7 @@ export function createWavPlayer(): WavPlayer {
       } catch {
         return false; // asset not shipped (e.g. a pakless legacy build)
       }
-      return loadPcm(decodeWav(bytes));
+      return loadPcm(openWav(bytes));
     },
     loadPcm,
     play,
@@ -301,8 +525,7 @@ export function createWavPlayer(): WavPlayer {
       if (!isPlaying || cursor >= pcm.frames) return;
       const want = Math.min(free, pcm.frames - cursor, WRITE_CHUNK_FRAMES);
       if (want > 0) {
-        const ch = pcm.channels;
-        const slice = pcm.data.slice(cursor * ch, (cursor + want) * ch);
+        const slice = trackFrames(pcm, cursor, want);
         const accepted = ns.writePcm(handle, slice.buffer as ArrayBuffer);
         cursor += accepted;
         free -= accepted;

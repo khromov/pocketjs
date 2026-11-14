@@ -196,14 +196,41 @@ export function audioFramesForTick(rate: number, tick: number): number {
 //   audio:wav.<name>   a complete RIFF/WAVE file, spliced verbatim
 //                      (apps/<app>/pak.json raw-blob route, PAK_DTYPE.u8)
 //
-// Accepted WAV shape (decodeWav in framework/src/audio-api.ts is the
-// reference decoder; anything else must fail loudly at decode time):
-//   - RIFF/WAVE, `fmt ` chunk audioFormat 1 (PCM), bitsPerSample 16
-//   - channels 1..AUDIO_MAX_CHANNELS, sampleRate in AUDIO_RATES
-//   - one `data` chunk; frames = dataBytes / (2 * channels)
+// Accepted WAV shapes (openWav in framework/src/audio-api.ts is the reference
+// decoder; anything else must fail loudly at decode time). Both share:
+//   - RIFF/WAVE, channels 1..AUDIO_MAX_CHANNELS, sampleRate in AUDIO_RATES
+//   - one `data` chunk
 //
-// The container is parsed guest-side (44-byte header class, cold path, once
-// per track). Raw-PCM pak entries and codec registration are deliberately
-// absent until a second format needs them (docs/RUNTIMES.md discipline).
+// PCM (decodeWav): `fmt ` audioFormat 1, bitsPerSample 16;
+//   frames = dataBytes / (2 * channels). The track is a view over the bytes.
+//
+// IMA ADPCM (decodeImaAdpcm): `fmt ` audioFormat 0x11, bitsPerSample 4, the
+//   Microsoft/DVI block layout. A block of blockAlign bytes opens with a
+//   4-byte header per channel (s16 first sample, u8 step index 0..88, u8 0),
+//   then 4-byte groups per channel in turn, each 8 samples low nibble first;
+//   samplesPerBlock = (blockAlign - 4 * channels) * 2 / channels + 1, which a
+//   `fmt ` extension (cbSize >= 2) must repeat. A `fact` chunk carries the
+//   frame count; the last block may stop short. Samples expand with the
+//   reference (shift-and-add) step rule and AUDIO_IMA_STEP / AUDIO_IMA_INDEX.
+//   The track decodes on demand, one block at a time, so a 4:1 music file
+//   never exists as s16 in guest memory.
+//
+// The container is parsed guest-side (cold path, once per track). The hosts
+// receive s16 PCM through writePcm either way; no host decodes a codec.
 
 export const AUDIO_PAK_WAV_PREFIX = "audio:wav.";
+
+/** `fmt ` audioFormat values an audio:wav.* entry may carry. */
+export const AUDIO_WAV_FORMAT = { pcm: 1, imaAdpcm: 0x11 } as const;
+
+/** IMA ADPCM quantizer step sizes, indexed by the step index 0..88. */
+export const AUDIO_IMA_STEP: readonly number[] = [
+  7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 19, 21, 23, 25, 28, 31, 34, 37, 41, 45, 50, 55, 60, 66, 73, 80, 88, 97, 107,
+  118, 130, 143, 157, 173, 190, 209, 230, 253, 279, 307, 337, 371, 408, 449, 494, 544, 598, 658, 724, 796, 876, 963,
+  1060, 1166, 1282, 1411, 1552, 1707, 1878, 2066, 2272, 2499, 2749, 3024, 3327, 3660, 4026, 4428, 4871, 5358, 5894,
+  6484, 7132, 7845, 8630, 9493, 10442, 11487, 12635, 13899, 15289, 16818, 18500, 20350, 22385, 24623, 27086, 29794,
+  32767,
+];
+
+/** IMA ADPCM step-index change per 4-bit code (the sign bit is ignored). */
+export const AUDIO_IMA_INDEX: readonly number[] = [-1, -1, -1, -1, 2, 4, 6, 8, -1, -1, -1, -1, 2, 4, 6, 8];

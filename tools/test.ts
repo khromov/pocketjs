@@ -162,6 +162,7 @@ const SUITE: readonly Stage[] = [
       "tests/osk-controller.test.ts",
       "tests/clear-keyboard-touch.test.ts",
       "tests/audio.test.ts",
+      "tests/ima-adpcm.test.ts",
       "tests/fs.test.ts",
       "tests/bytes.test.ts",
       "tests/offload.test.ts",
