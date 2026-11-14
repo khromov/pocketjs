@@ -62,6 +62,9 @@ pub const POCKET_GUEST_FEATURE_CAMERA_PHOTO: u32 = 32;
 /// `features.link.channel` is true in the plan: the guest gets
 /// `globalThis.channel`, its applet channel to its daemon over the Pocket Link.
 pub const POCKET_GUEST_FEATURE_CHANNEL: u32 = 128;
+/// `features.audio.pcm` is true in the plan: the guest gets `globalThis.audio`
+/// when NDSP started (`platforms/3ds/audio.h`).
+pub const POCKET_GUEST_FEATURE_AUDIO: u32 = 256;
 
 /// Verify a complete `.pocket` and admit the first variant the exported
 /// profile facts satisfy (`pocket_package::admission`). Returns the generated
@@ -139,6 +142,10 @@ pub unsafe extern "C" fn pocket_package_open(
             0
         } | if facts.feature("link.channel") {
             POCKET_GUEST_FEATURE_CHANNEL
+        } else {
+            0
+        } | if facts.feature("audio.pcm") {
+            POCKET_GUEST_FEATURE_AUDIO
         } else {
             0
         },

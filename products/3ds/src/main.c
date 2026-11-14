@@ -56,6 +56,7 @@
 #include "worker.h"
 #include "offload.h"
 #include "media.h"
+#include "audio.h"
 #include "devstats.h"
 #include "devmenu.h"
 #include "hbldr.h"
@@ -506,7 +507,9 @@ static void fail(const char *message) {
 #else
   /* On hardware the message has to be readable without pulling the card, and
    * HOME has to keep working: parking in a bare loop costs the user a forced
-   * power-off, which is also the one way to lose the file just written. */
+   * power-off, which is also the one way to lose the file just written. The
+   * guest's streams stop before the error screen. */
+  pocket_3ds_audio_reset();
   loading_end();
   consoleInit(GFX_BOTTOM, NULL);
   printf("PocketJS %s\nFAILED: %s\nPress HOME to exit.\n", POCKETJS_TARGET_ID, text);
@@ -518,6 +521,12 @@ static void fail(const char *message) {
     gfxSwapBuffers();
     gspWaitForVBlank();
   }
+  /* The media worker is joined before the audio module drops the last NDSP
+   * reference (audio.h). */
+#ifdef POCKETJS_MEDIA
+  media_stop();
+#endif
+  pocket_3ds_audio_shutdown();
   finish_native_install();
   gfxExit();
   exit(1);
@@ -710,6 +719,17 @@ static bool boot_guest(
   }
 #endif
   push_timing_step("boot-fs-bind", step, "data.fs=%d", (package->guest.features & POCKET_GUEST_FEATURE_FS) != 0);
+  /* audio.pcm: the module is bound before qjs_boot, which publishes
+   * `globalThis.audio` only for a bound module. Without NDSP (no
+   * sdmc:/3ds/dspfirm.cdc) the guest runs without the namespace and the
+   * reason is recorded. A capture build never starts NDSP. */
+  pocket_3ds_audio_reset();
+#ifndef POCKETJS_CAPTURE
+  if ((package->guest.features & POCKET_GUEST_FEATURE_AUDIO) != 0) {
+    char audio_error[128];
+    if (!pocket_3ds_audio_bind(audio_error, sizeof audio_error)) runtime_write_error("audio-init", audio_error);
+  }
+#endif
   step = push_timing_now();
   camera_admit(
     (package->guest.features & POCKET_GUEST_FEATURE_CAMERA_QR) != 0,
@@ -1471,6 +1491,11 @@ int main(void) {
 #endif
   PocketRuntimeFailureLineage failures = {0};
   input_init();
+#ifndef POCKETJS_CAPTURE
+  /* NDSP for the process, started before media.c's worker exists (audio.h).
+   * A failure is reported by each audio guest's bind. */
+  (void)pocket_3ds_audio_start();
+#endif
 #ifdef POCKETJS_MEDIA
   if (!media_start(ui_upload_texture)) { media_stop(); fail("Media worker allocation failed"); }
 #endif
@@ -1697,6 +1722,9 @@ int main(void) {
       char link_line[48];
       link2_guest_describe(link_line, sizeof link_line);
       devmenu_set_link_line(link_line);
+      char audio_line[96];
+      pocket_3ds_audio_describe(audio_line, sizeof audio_line);
+      devmenu_set_audio_line(audio_line);
     }
 #endif
     /* The new guest's first frame still draws under the loading overlay;
@@ -1709,6 +1737,9 @@ int main(void) {
     u64 phase_js __attribute__((unused)) = offload_cpu_start;
     LOOP_STEP("link before the frame");
     link2_host_before_frame();
+    /* Played wave buffers retire and held frames queue before the guest
+     * polls and writes. */
+    pocket_3ds_audio_service();
     guest_frame_started = svcGetSystemTick();
     guest_frame_running = true;
     LOOP_STEP("guest frame");
@@ -1848,6 +1879,8 @@ int main(void) {
 #endif
   input_shutdown();
   teardown_guest();
+  /* After media_stop(): the last NDSP reference drops on this thread. */
+  pocket_3ds_audio_shutdown();
   agent_shutdown();
   stage_shutdown();
 #ifdef POCKETJS_EXTENSION

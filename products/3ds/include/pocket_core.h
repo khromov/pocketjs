@@ -39,6 +39,7 @@ typedef struct {
 #define POCKET_GUEST_FEATURE_EXTENSION 64u  /* features["system.extension"] */
 #define POCKET_GUEST_FEATURE_CHANNEL 128u   /* features["link.channel"] */
 #define POCKET_GUEST_FEATURE_CAMERA_PHOTO 32u /* features["camera.photo"] */
+#define POCKET_GUEST_FEATURE_AUDIO 256u    /* features["audio.pcm"] */
 
 /* Returns the POCKET_PACKAGE_OPEN_* codes of pocket_runtime.h.
  * POCKET_PACKAGE_OPEN_OK = admitted: the package footer, the first variant

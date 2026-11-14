@@ -2,6 +2,7 @@
 /* Product namespaces around the generated canonical QuickJS guest. */
 #include "qjs.h"
 #include "agent.h"
+#include "audio.h"
 #include "camera.h"
 #include "fs.h"
 #include "instance.h"
@@ -112,6 +113,15 @@ typedef enum {
   HostFsRename,
   HostFsUsage,
   HostFsLastError,
+  HostAudioCreateStream,
+  HostAudioDestroyStream,
+  HostAudioWritePcm,
+  HostAudioPlay,
+  HostAudioPause,
+  HostAudioStop,
+  HostAudioSetVolume,
+  HostAudioEndStream,
+  HostAudioPoll,
 } HostOperation;
 
 static JSRuntime *runtime;
@@ -237,6 +247,47 @@ static const char *argument_text(JSContext *ctx, int argc, JSValueConst *argv,
 static void free_text(JSContext *ctx, const char *text) {
   if (text != NO_TEXT)
     JS_FreeCString(ctx, text);
+}
+
+static void clear_exception(JSContext *ctx) {
+  JS_FreeValue(ctx, JS_GetException(ctx));
+}
+
+/* The bytes of an ArrayBuffer or of a typed array's view, with a reference
+ * that keeps the object alive (engine/host-services/link2_channel_qjs.c).
+ * Nothing that runs guest code may follow it before the bytes are used. */
+static bool argument_bytes(JSContext *ctx, int argc, JSValueConst *argv,
+                           int index, const uint8_t **bytes, size_t *length,
+                           JSValue *lease) {
+  if (index >= argc)
+    return false;
+  size_t size = 0;
+  uint8_t *data = JS_GetArrayBuffer(ctx, &size, argv[index]);
+  if (data != NULL) {
+    *lease = JS_DupValue(ctx, argv[index]);
+    *bytes = data;
+    *length = size;
+    return true;
+  }
+  clear_exception(ctx);
+  size_t offset = 0, view_length = 0, element = 0;
+  JSValue buffer = JS_GetTypedArrayBuffer(ctx, argv[index], &offset,
+                                          &view_length, &element);
+  if (JS_IsException(buffer)) {
+    clear_exception(ctx);
+    return false;
+  }
+  data = JS_GetArrayBuffer(ctx, &size, buffer);
+  if (data == NULL || offset > size || view_length > size - offset) {
+    if (data == NULL)
+      clear_exception(ctx);
+    JS_FreeValue(ctx, buffer);
+    return false;
+  }
+  *lease = buffer;
+  *bytes = data + offset;
+  *length = view_length;
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -665,6 +716,49 @@ static JSValue host_operation(JSContext *ctx, JSValueConst this_value, int argc,
   }
   case HostFsLastError:
     return JS_NewString(ctx, fs_last_error());
+  /* audio.pcm (contracts/spec/audio.ts) on platforms/3ds/audio.c. */
+  case HostAudioCreateStream: {
+    /* Locals fix the order in which the two conversions run guest code. */
+    int32_t rate = argument_int(ctx, argc, argv, 0);
+    int32_t channels = argument_int(ctx, argc, argv, 1);
+    return JS_NewInt32(ctx, pocket_3ds_audio_create_stream((uint32_t)rate,
+                                                           (uint32_t)channels));
+  }
+  case HostAudioDestroyStream:
+    pocket_3ds_audio_destroy_stream(argument_int(ctx, argc, argv, 0));
+    return JS_UNDEFINED;
+  case HostAudioWritePcm: {
+    /* The handle converts first: its valueOf may detach the buffer. */
+    int32_t handle = argument_int(ctx, argc, argv, 0);
+    if (!argument_bytes(ctx, argc, argv, 1, &bytes, &byte_length, &lease))
+      return JS_NewInt32(ctx, 0);
+    int32_t accepted = pocket_3ds_audio_write_pcm(handle, bytes, byte_length);
+    JS_FreeValue(ctx, lease);
+    return JS_NewInt32(ctx, accepted);
+  }
+  case HostAudioPlay:
+    pocket_3ds_audio_play(argument_int(ctx, argc, argv, 0));
+    return JS_UNDEFINED;
+  case HostAudioPause:
+    pocket_3ds_audio_pause(argument_int(ctx, argc, argv, 0));
+    return JS_UNDEFINED;
+  case HostAudioStop:
+    pocket_3ds_audio_stop(argument_int(ctx, argc, argv, 0));
+    return JS_UNDEFINED;
+  case HostAudioSetVolume: {
+    int32_t handle = argument_int(ctx, argc, argv, 0);
+    double volume = argument_float(ctx, argc, argv, 1);
+    pocket_3ds_audio_set_volume(handle, volume);
+    return JS_UNDEFINED;
+  }
+  case HostAudioEndStream:
+    pocket_3ds_audio_end_stream(argument_int(ctx, argc, argv, 0));
+    return JS_UNDEFINED;
+  case HostAudioPoll: {
+    char event[POCKET_3DS_AUDIO_EVENT_BYTES];
+    return pocket_3ds_audio_poll(event, sizeof event) ? JS_NewString(ctx, event)
+                                                       : JS_UNDEFINED;
+  }
   default:
     break;
   }
@@ -802,6 +896,23 @@ static int32_t install_host(void) {
     add_operation(fs, "usage", 0, HostFsUsage);
     add_operation(fs, "lastError", 0, HostFsLastError);
     JS_SetPropertyStr(context, global, "fs", fs);
+  }
+
+  /* Only a guest that declared "audio.pcm", in a process where NDSP started,
+   * has a bound module (main.c). audio.capture is not advertised: no
+   * openInput, readInput or closeInput. */
+  if (pocket_3ds_audio_bound()) {
+    JSValue audio = JS_NewObject(context);
+    add_operation(audio, "createStream", 2, HostAudioCreateStream);
+    add_operation(audio, "destroyStream", 1, HostAudioDestroyStream);
+    add_operation(audio, "writePcm", 2, HostAudioWritePcm);
+    add_operation(audio, "play", 1, HostAudioPlay);
+    add_operation(audio, "pause", 1, HostAudioPause);
+    add_operation(audio, "stop", 1, HostAudioStop);
+    add_operation(audio, "setVolume", 2, HostAudioSetVolume);
+    add_operation(audio, "endStream", 1, HostAudioEndStream);
+    add_operation(audio, "poll", 0, HostAudioPoll);
+    JS_SetPropertyStr(context, global, "audio", audio);
   }
 
   /* Only a guest that declared "system.agent" sees the namespace. */
@@ -1127,6 +1238,8 @@ void qjs_shutdown(void) {
 #ifdef POCKETJS_MEDIA
   media_forget_guest();
 #endif
+  /* The guest's streams stop and its handles go stale. */
+  pocket_3ds_audio_reset();
   if (guest) {
     pocket_guest_quickjs_destroy(guest);
     guest = NULL;

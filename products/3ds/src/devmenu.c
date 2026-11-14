@@ -26,6 +26,9 @@ static bool last_connected;
 static char notice[32] = "WAITING FOR CLIENT";
 /* The Pocket Link's state line (link_describe), handed in by main.c. */
 static char link_line[48] = "NOT PAIRED";
+/* The audio module's state line (pocket_3ds_audio_describe), handed in by
+ * main.c. */
+static char audio_line[96] = "AUDIO: NDSP WAS NOT STARTED";
 
 /* Five-bit rows for 0-9 then A-Z. Lowercase input maps to uppercase so native
  * Runtime phases can be printed without carrying a second alphabet. */
@@ -74,6 +77,9 @@ static const uint8_t *glyph_rows(char value) {
   static const uint8_t colon[7] = { 0, 0x04, 0x04, 0, 0x04, 0x04, 0 };
   static const uint8_t dash[7] = { 0, 0, 0, 0x0e, 0, 0, 0 };
   static const uint8_t slash[7] = { 0x01, 0x02, 0x04, 0x04, 0x08, 0x10, 0 };
+  static const uint8_t comma[7] = { 0, 0, 0, 0, 0x06, 0x02, 0x04 };
+  static const uint8_t open_paren[7] = { 0x02, 0x04, 0x08, 0x08, 0x08, 0x04, 0x02 };
+  static const uint8_t close_paren[7] = { 0x08, 0x04, 0x02, 0x02, 0x02, 0x04, 0x08 };
   static const uint8_t question[7] = { 0x0e, 0x11, 0x01, 0x02, 0x04, 0, 0x04 };
   unsigned char c = (unsigned char)value;
   if (c >= 'a' && c <= 'z') c = (unsigned char)toupper(c);
@@ -85,6 +91,9 @@ static const uint8_t *glyph_rows(char value) {
     case ':': return colon;
     case '-': return dash;
     case '/': return slash;
+    case ',': return comma;
+    case '(': return open_paren;
+    case ')': return close_paren;
     default: return question;
   }
 }
@@ -167,6 +176,10 @@ void devmenu_hide(void) {
 
 void devmenu_set_link_line(const char *value) {
   snprintf(link_line, sizeof link_line, "%s", value == NULL ? "" : value);
+}
+
+void devmenu_set_audio_line(const char *value) {
+  snprintf(audio_line, sizeof audio_line, "%s", value == NULL ? "" : value);
 }
 
 void devmenu_set_notice(const char *value) {
@@ -260,6 +273,8 @@ const uint32_t *devmenu_draw_list(size_t *length) {
   rect(12, 143, 296, 58, ABGR(15, 23, 42, 255));
   text(20, 151, 1, cyan, state.paired ? "ON YOUR COMPUTER" : "ON YOUR COMPUTER WHILE FTPD RUNS");
   text(20, 169, 1, white, state.paired ? "BUN RUN 3DS:DEV SERVE" : "BUN RUN 3DS:DEV SETUP --HOST IP");
+  /* Cut at the screen's right edge: the firmware path stays readable. */
+  text(14, 205, 1, muted, audio_line);
   text(14, 217, 1, muted, "X SCREENSHOT  B CLOSE");
   text(188, 217, 1, cyan, notice);
 

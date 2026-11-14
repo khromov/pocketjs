@@ -27,6 +27,8 @@ int main(void) {
   assert(length == 0);
 
   devmenu_toggle();
+  /* Longer than the screen is wide: the menu cuts it at the right edge. */
+  devmenu_set_audio_line("audio: DSP firmware missing (sdmc:/3ds/dspfirm.cdc); dump it in Rosalina and restart");
   const uint32_t *words = devmenu_draw_list(&length);
   assert(words != NULL);
   assert(length > 4 && length < 12288 && length % 4 == 0);
@@ -44,6 +46,7 @@ int main(void) {
   }
   assert(full_background);
 
+  devmenu_set_audio_line("audio: dsp ok, 4/4 streams, 0 underruns");
   devmenu_set_notice("SHOT QUEUED");
   assert(devmenu_draw_list(&length) == words);
   assert(length > 4);
