@@ -1,27 +1,43 @@
 // tools/psp-svelte.ts — one command for a Svelte-only PSP launcher EBOOT.
 //
-//   bun run psp:svelte                 # build + install into PPSSPP's memstick
-//   bun run psp:svelte -- --no-install # build only
-//   bun run psp:svelte -- --svelte-shell   # build the launcher shell as Svelte too
-//   bun run psp:svelte -- --debug      # cargo debug profile instead of --release
+//   bun run psp:svelte                     # build + install into PPSSPP's memstick
+//   bun run psp:svelte -- --no-install     # build only
+//   bun run psp:svelte -- --svelte-shell   # the launcher shell from apps/launcher/app.svelte too
 //
-// tools/launcher.ts computes its app set from each apps/*/pocket.json and has
-// no framework override, so a demo's Svelte variant entry (main.svelte.ts) is
+// tools/launcher.ts computes its app set from each apps/*/pocket.app.json and
+// has no framework override, so a demo's Svelte twin entry (main.svelte.ts) is
 // invisible to it: the manifest says framework=solid and entry=main.tsx. This
-// script points the Svelte-capable manifests at their Svelte entries for the
-// duration of one build and restores them in a finally block (and on SIGINT),
-// then excludes every app that has no Svelte entry at all, plus the demos in
-// STANDALONE_OUTPUTS, which ship as their own EBOOTs.
+// script points those manifests at their Svelte entries for the pack step,
+// without app.aot and app.model (they select the Solid compile), and writes the
+// original bytes back in a finally block and on SIGINT/SIGTERM. Every app with
+// no Svelte entry is excluded, and so are the demos in STANDALONE_OUTPUTS,
+// which ship as their own EBOOTs.
 //
-// --force is REQUIRED and not optional: tools/launcher.ts:887 reuses an
-// existing dist/<output>.js instead of rebuilding it, so without it the pack
-// step silently packages the previously built Solid bundle under the Svelte
-// plan and you get an EBOOT that claims Svelte and runs Solid.
+// The steps are the ones `tools/launcher.ts build --target psp` runs, with two
+// changes after its `pack` step:
+//   1. `tools/launcher.ts pack --target psp --force --exclude …` compiles the
+//      apps, writes dist/launcher-registry.tsv and the isolated launcher source
+//      (dist/launcher/psp/.launcher-source/), and packs dist/packages/*.pocket.
+//   2. --svelte-shell: the isolated source gets a Svelte entry that mounts
+//      apps/launcher/app.svelte over the same generated registry, and
+//      `pocket compile` replaces dist/packages/launcher-main.pocket with it.
+//   3. The XMB metadata goes beside the isolated entry (<entry dir>/psp/, where
+//      tools/psp.ts reads it): the launcher's Psp.toml and a white plate with
+//      the Svelte logo as ICON0 and PIC1. No committed file is rewritten.
+//   4. `pocket build --target psp --pocket dist/packages/launcher-main.pocket
+//      --out dist/native -- --launcher-registry=dist/launcher-registry.tsv`
+//      writes dist/native/launcher-main.pbp. The PSP build executor always
+//      builds the cargo release profile, so there is no debug variant.
+//
+// --force is required: needsLauncherCompile() and renderCovers() in
+// tools/launcher.ts reuse an existing dist/<output>.js, so without it the pack
+// step packages the previously built Solid bundle under the Svelte plan and
+// the EBOOT claims Svelte and runs Solid.
 
 import { $ } from "bun";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { bakeSvg } from "../framework/compiler/bake-svg.ts";
 import { encodePNG } from "../tests/png.ts";
@@ -29,18 +45,36 @@ import { encodePNG } from "../tests/png.ts";
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const APPS = join(ROOT, "apps");
 const SHELL_OUTPUT = "launcher-main";
+// tools/launcher.ts launcherPaths("psp").
+const DIST = join(ROOT, "dist");
+const ISOLATED_SOURCE = join(DIST, "launcher/psp/.launcher-source");
+const PACKAGES = join(DIST, "packages");
+const REGISTRY_TSV = join(DIST, "launcher-registry.tsv");
+const LAUNCHER_POCKET = join(PACKAGES, `${SHELL_OUTPUT}.pocket`);
+// The PSP build executor writes {outdir}/{output}.pbp (tools/build/programs/psp.ts).
+const NATIVE_OUT = join(DIST, "native");
+const BUILT_EBOOT = join(NATIVE_OUT, `${SHELL_OUTPUT}.pbp`);
 
 const argv = Bun.argv.slice(2);
+for (const arg of argv) {
+  if (arg === "--debug") {
+    console.error("psp-svelte: --debug was removed; the PSP build executor always builds the release profile");
+    process.exit(1);
+  }
+  if (arg !== "--no-install" && arg !== "--svelte-shell") {
+    console.error(`psp-svelte: unknown option ${arg} (expected --no-install, --svelte-shell)`);
+    process.exit(1);
+  }
+}
 const install = !argv.includes("--no-install");
 const svelteShell = argv.includes("--svelte-shell");
-const profile = argv.includes("--debug") ? [] : ["--release"];
 
 interface Manifest {
-  app: { entry: string; output: string; framework?: string };
+  app: { entry: string; output: string; framework?: string; aot?: boolean; model?: string };
 }
 
 function manifestPath(app: string): string {
-  return join(APPS, app, "pocket.json");
+  return join(APPS, app, "pocket.app.json");
 }
 
 function readManifest(app: string): Manifest | undefined {
@@ -71,14 +105,13 @@ const apps = readdirSync(APPS, { withFileTypes: true })
   });
 
 /**
- * Demos that ship as their own EBOOT (`bun tools/psp.ts <app> --framework=svelte
- * --release`, staged under dist/psp/PSP/GAME/<Title>/) and stay out of the
- * gallery. Wolfensvelte carries its wall textures and a music stream in its pak,
+ * Demos that ship as their own EBOOT (`bun tools/psp.ts <app> --release`,
+ * staged under dist/psp/PSP/GAME/<Title>/) and stay out of the gallery.
+ * Wolfensvelte carries its wall textures and two music tracks in its pak,
  * which would put most of the gallery's bytes behind one deck entry.
  */
 const STANDALONE_OUTPUTS: ReadonlySet<string> = new Set(["wolfensvelte-main"]);
 
-const shell = apps.find((a) => a.output === SHELL_OUTPUT);
 const demos = apps.filter(
   (a) =>
     a.output !== SHELL_OUTPUT && (a.variant || a.declared) && !STANDALONE_OUTPUTS.has(a.output),
@@ -86,11 +119,14 @@ const demos = apps.filter(
 const excluded = apps.filter((a) => a.output !== SHELL_OUTPUT && !demos.includes(a));
 
 if (demos.length === 0) throw new Error("psp-svelte: no Svelte-capable demos found under apps/");
+const shellComponent = join(APPS, "launcher/app.svelte");
+if (svelteShell && !existsSync(shellComponent)) {
+  throw new Error(`psp-svelte: --svelte-shell needs ${relative(ROOT, shellComponent)}`);
+}
 
 // Only manifests that need rewriting are touched; a demo already declaring
 // Svelte (and pointing at a Svelte entry) is left exactly as it is.
 const flip = demos.filter((a) => a.variant && (!a.declared || a.manifest.app.entry !== a.variant));
-if (svelteShell && shell?.variant) flip.push(shell);
 
 /** White plate with the Svelte logo centered, alpha composited over it. The
  *  logo's inner mark is white by design, so it reads as cut out of the orange
@@ -121,9 +157,8 @@ function logoPlate(width: number, height: number, logo: number): Buffer {
   return encodePNG(out, width, height);
 }
 
-// Both the manifests and apps/launcher/psp/{icon0,pic1}.png are committed
-// files this build rewrites in place — cargo-psp reads the XMB art from that
-// fixed path — so every one of them is restored when the build ends.
+// The flipped manifests are committed files; every one is written back with
+// its original bytes when the pack step ends, fails, or is interrupted.
 const backups = new Map<string, Buffer>();
 function restore(): void {
   for (const [path, original] of backups) writeFileSync(path, original);
@@ -131,21 +166,74 @@ function restore(): void {
   backups.clear();
 }
 function backup(path: string): void {
-  if (existsSync(path)) backups.set(path, readFileSync(path));
+  if (!backups.has(path) && existsSync(path)) backups.set(path, readFileSync(path));
 }
-for (const signal of ["SIGINT", "SIGTERM"] as const) {
+for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
   process.on(signal, () => {
     restore();
     process.exit(1);
   });
 }
 
+/** Replace the packed Solid launcher with one that mounts app.svelte over the
+ *  registry tools/launcher.ts generated for this build. */
+async function packSvelteShell(): Promise<void> {
+  const manifestFile = join(ISOLATED_SOURCE, "pocket.app.json");
+  if (!existsSync(manifestFile)) throw new Error(`psp-svelte: the pack step left no ${relative(ROOT, manifestFile)}`);
+  const entry = join(ISOLATED_SOURCE, "main.svelte.ts");
+  let component = relative(ISOLATED_SOURCE, shellComponent).replaceAll("\\", "/");
+  if (!component.startsWith(".")) component = `./${component}`;
+  writeFileSync(
+    entry,
+    [
+      "// GENERATED by tools/psp-svelte.ts — isolated Svelte launcher entry.",
+      "// @title PocketJS: Launcher",
+      'import { mount } from "@pocketjs/framework/svelte";',
+      `import Launcher from ${JSON.stringify(component)};`,
+      'import { REGISTRY } from "./registry.generated.ts";',
+      "",
+      "mount(Launcher, { props: { registry: REGISTRY } });",
+      "",
+    ].join("\n"),
+  );
+  const manifest = JSON.parse(readFileSync(manifestFile, "utf8")) as Manifest;
+  manifest.app.framework = "svelte";
+  manifest.app.entry = relative(ROOT, entry).replaceAll("\\", "/");
+  delete manifest.app.aot;
+  delete manifest.app.model;
+  writeFileSync(manifestFile, JSON.stringify(manifest, null, 2) + "\n");
+  console.log(`psp-svelte: shell ${SHELL_OUTPUT} <- ${relative(ROOT, shellComponent)}`);
+  await $`bun tools/pocket.ts compile --target psp --manifest ${manifestFile} --project-root ${ROOT} --outdir ${DIST} --output ${LAUNCHER_POCKET}`
+    .cwd(ROOT);
+}
+
+/** XMB identity for this build: PIC1 is the 480x272 background, ICON0 the
+ *  144x80 tile, under the launcher's title. */
+function writeXmbMetadata(): void {
+  const xmb = join(ISOLATED_SOURCE, "psp");
+  mkdirSync(xmb, { recursive: true });
+  copyFileSync(join(APPS, "launcher/psp/Psp.toml"), join(xmb, "Psp.toml"));
+  writeFileSync(join(xmb, "pic1.png"), logoPlate(480, 272, 150));
+  writeFileSync(join(xmb, "icon0.png"), logoPlate(144, 80, 56));
+  console.log(`psp-svelte: XMB art -> white + Svelte logo (${relative(ROOT, xmb)})`);
+}
+
 console.log(`psp-svelte: ${demos.length} Svelte demo(s): ${demos.map((a) => a.output).join(", ")}`);
-console.log(`psp-svelte: shell ${SHELL_OUTPUT} (${svelteShell && shell?.variant ? "svelte" : "unchanged"})`);
+console.log(`psp-svelte: shell ${SHELL_OUTPUT} (${svelteShell ? "svelte" : "solid"})`);
 console.log(
   `psp-svelte: excluding ${excluded.length} app(s)` +
     ` (${excluded.filter((a) => STANDALONE_OUTPUTS.has(a.output)).length} standalone, the rest non-Svelte)`,
 );
+
+const env = { ...process.env };
+// The deck is title-sorted; lead with the games when they are present.
+const lead = ["svelte-shooter-main", "svelte-snake-main"].filter((output) =>
+  demos.some((app) => app.output === output)
+);
+if (lead.length > 0) {
+  env.POCKETJS_LAUNCHER_FIRST = lead.join(",");
+  console.log(`psp-svelte: deck order -> ${lead.join(", ")} first`);
+}
 
 try {
   for (const app of flip) {
@@ -154,54 +242,45 @@ try {
     const next = JSON.parse(readFileSync(path, "utf8")) as Manifest;
     next.app.framework = "svelte";
     next.app.entry = app.variant!;
+    delete next.app.aot;
+    delete next.app.model;
     writeFileSync(path, JSON.stringify(next, null, 2) + "\n");
     console.log(`  svelte: ${app.output} <- ${app.variant}`);
   }
 
-  const env = { ...process.env };
-
-  // XMB identity for this build: PIC1 is the 480x272 background, ICON0 the
-  // 144x80 tile. tools/launcher.ts would otherwise generate a sim render of
-  // the deck plus its stage gradient.
-  const xmb = join(ROOT, "dist/launcher/psp/xmb-svelte");
-  mkdirSync(xmb, { recursive: true });
-  for (const asset of ["icon0.png", "pic1.png"]) {
-    backup(join(APPS, "launcher/psp", asset));
-  }
-  writeFileSync(join(xmb, "pic1.png"), logoPlate(480, 272, 150));
-  writeFileSync(join(xmb, "icon0.png"), logoPlate(144, 80, 56));
-  env.POCKETJS_LAUNCHER_XMB = xmb;
-  console.log(`psp-svelte: XMB art -> white + Svelte logo (${xmb})`);
-
-  // The deck is title-sorted; lead with the game when it is present.
-  const lead = ["svelte-shooter-main", "svelte-snake-main"].filter((output) =>
-    demos.some((app) => app.output === output)
-  );
-  if (lead.length > 0) {
-    env.POCKETJS_LAUNCHER_FIRST = lead.join(",");
-    console.log(`psp-svelte: deck order -> ${lead.join(", ")} first`);
-  }
-
   const excludeArgs = excluded.flatMap((a) => ["--exclude", a.output]);
-  await $`bun tools/launcher.ts build --target psp --force ${excludeArgs} -- ${profile}`
-    .cwd(ROOT)
-    .env(env);
+  await $`bun tools/launcher.ts pack --target psp --force ${excludeArgs}`.cwd(ROOT).env(env);
 } finally {
   restore();
 }
 
-const built = join(
-  ROOT,
-  `hosts/psp/target/mipsel-sony-psp/${profile.length > 0 ? "release" : "debug"}/EBOOT.PBP`,
-);
-if (!existsSync(built)) throw new Error(`psp-svelte: no EBOOT at ${built}`);
-const bytes = Bun.file(built).size;
-console.log(`\npsp-svelte: EBOOT.PBP ${(bytes / 1048576).toFixed(2)} MiB`);
+if (!existsSync(REGISTRY_TSV) || !existsSync(LAUNCHER_POCKET)) {
+  throw new Error("psp-svelte: the pack step left no launcher registry or launcher package");
+}
+const gallery = readFileSync(REGISTRY_TSV, "utf8")
+  .split(/\r?\n/)
+  .filter((line) => line.trim())
+  .map((line) => line.split("\t")[0]!);
+console.log(`psp-svelte: gallery (${gallery.length}): ${gallery.join(", ")}`);
+const missing = demos.filter((a) => !gallery.includes(a.output));
+if (missing.length > 0) {
+  console.warn(`psp-svelte: not admitted for psp, so not in the gallery: ${missing.map((a) => a.output).join(", ")}`);
+}
+
+if (svelteShell) await packSvelteShell();
+writeXmbMetadata();
+await $`bun tools/pocket.ts build --target psp --pocket ${LAUNCHER_POCKET} --out ${NATIVE_OUT} -- --launcher-registry=${REGISTRY_TSV}`
+  .cwd(ROOT)
+  .env(env);
+
+if (!existsSync(BUILT_EBOOT)) throw new Error(`psp-svelte: no EBOOT at ${BUILT_EBOOT}`);
+const bytes = Bun.file(BUILT_EBOOT).size;
+console.log(`\npsp-svelte: EBOOT.PBP ${(bytes / 1048576).toFixed(2)} MiB (${relative(ROOT, BUILT_EBOOT)})`);
 
 // Staged memory-stick layout, matching tools/psp-all.ts's PSP/GAME/<folder>/.
-const staged = join(ROOT, "dist/psp/PSP/GAME/PocketJS-svelte");
+const staged = join(DIST, "psp/PSP/GAME/PocketJS-svelte");
 mkdirSync(staged, { recursive: true });
-copyFileSync(built, join(staged, "EBOOT.PBP"));
+copyFileSync(BUILT_EBOOT, join(staged, "EBOOT.PBP"));
 console.log(`  staged   dist/psp/PSP/GAME/PocketJS-svelte/EBOOT.PBP`);
 
 // PPSSPP's memstick root varies by platform and install; PPSSPP_MEMSTICK wins.
@@ -219,7 +298,7 @@ if (install) {
   } else {
     const target = join(root, "GAME/PocketJS-svelte");
     mkdirSync(target, { recursive: true });
-    copyFileSync(built, join(target, "EBOOT.PBP"));
+    copyFileSync(BUILT_EBOOT, join(target, "EBOOT.PBP"));
     console.log(`  install  ${target}/EBOOT.PBP`);
     console.log("\nOpen PPSSPP's \"Homebrew & Demos\" tab. Enter summons the picker.");
   }
