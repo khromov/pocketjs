@@ -177,6 +177,41 @@ the launcher switches to presents at 60. For a guest at the rate:
   frame numbers count 30 Hz frames (the wolfensvelte spec in
   `tests/golden-specs.ts`).
 
+## Svelte demos
+
+`tools/3ds-svelte.ts` builds the Svelte demo corpus for this product, one
+`.3dsx` per app:
+
+```sh
+bun run 3ds:svelte                  # every Svelte-capable demo -> dist/3ds/
+bun run 3ds:svelte -- svelte-shooter wolfensvelte --cia
+bun run 3ds:svelte -- --keep-going  # build the rest when one app fails
+```
+
+A committed demo manifest describes the PSP, so the script rewrites
+`apps/<app>/pocket.app.json` for the duration of one build and restores it
+afterwards. `tools/build.ts` checks the plan against the manifest beside the
+entry, so the rewrite is that file and not a copy. It changes three parts:
+
+- **framework and entry.** The twins of cards, chrome, cursor, hero and
+  motions keep their Svelte variant at `main.svelte.ts` while the manifest
+  says `framework: "solid"`. The rewrite points the entry at the variant and
+  drops the Solid compiler settings `aot` and `model`.
+- **viewport.** The demos declare 480x272 under `integer-fit`; `3ds-dev`
+  publishes one logical viewport, 400x240 `native`.
+- **the auxiliary surface.** The rewrite declares the 320x240 surface and
+  `display.auxiliary`, so the plan names the bottom screen as the app's and
+  `ui.__auxiliarySurface` comes from the plan. Wolfensvelte's bottom screen,
+  the shooter's HUD and `apps/shared/SvelteLogoScreen.svelte` draw there. The
+  single display mode in `src/agent.c` darkens the top screen for a guest that
+  declares `system.agent`; no Svelte demo declares it.
+
+The script repeats the inner build's `presents at` line and, when a build
+fails, the last 40 lines of its output. The launcher is excluded:
+`tools/launcher.ts` has no 3ds target. `tests/3ds-svelte.test.ts` covers the
+rewrite, the schema validity of every rewritten manifest and the declared
+rates.
+
 ## Updating the guest from SD
 
 The build prints the application's 16-hex-digit runtime slot. The runtime

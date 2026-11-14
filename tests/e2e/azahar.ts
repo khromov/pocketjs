@@ -345,7 +345,7 @@ for (const spec of specs) {
     // A Svelte demo's committed manifest describes the PSP (480x272); the
     // 3ds-dev profile rejects it at admission, so the build sees the same
     // rewritten manifest tools/3ds-svelte.ts uses, restored afterwards.
-    const manifestPath = `${ROOT}apps/${demo}/pocket.json`;
+    const manifestPath = `${ROOT}apps/${demo}/pocket.app.json`;
     const originalManifest = readFileSync(manifestPath, "utf8");
     const rewritten = threeDsManifestFor(originalManifest);
     if (rewritten) writeFileSync(manifestPath, rewritten);

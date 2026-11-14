@@ -5,32 +5,41 @@
 //   bun run 3ds:svelte -- --cia         # also write installable .cia titles
 //   bun run 3ds:svelte -- --keep-going  # build the rest when one app fails
 //
-// tools/3ds.ts builds one app from its apps/<app>/pocket.json, and three parts
-// of a demo manifest describe the PSP rather than the 3DS:
+// tools/3ds.ts (products/3ds/build.ts) builds one app from its
+// apps/<app>/pocket.app.json, and three parts of a demo manifest describe the
+// PSP rather than the 3DS:
 //
 //   1. framework/entry. A demo's Svelte variant lives at main.svelte.ts while
 //      the manifest says framework=solid and entry=main.tsx, so the Svelte
 //      code is invisible to any build driven by the committed manifest. This
-//      is the same blind spot tools/psp-svelte.ts works around.
+//      is the same blind spot tools/psp-svelte.ts works around. The Solid
+//      compiler settings `app.aot` and `app.model` go with the Solid entry.
 //   2. viewport. The demos declare the PSP's 480x272 under `integer-fit`.
 //      The 3ds-dev profile (tools/3ds-profile.ts) publishes one logical
 //      viewport, 400x240, and one presentation, `native`, so an unmodified
 //      demo manifest is rejected by admission before anything is compiled:
 //      "target does not support logical viewport 480x272".
-//   3. the auxiliary surface, which is the host's requirement rather than the
-//      app's. hosts/3ds/src/main.c takes POCKETJS_AUX_VIEW_W/H as mandatory
-//      `#define`s and drives the bottom screen on every frame, so a
-//      single-surface guest reaches the compiler as `-DPOCKETJS_AUX_VIEW_W=`
-//      and fails inside main.c rather than at admission. Each build therefore
-//      declares the profile's 320x240 auxiliary surface, and `display.auxiliary`
-//      with it — the resolver rejects either one on its own. The demos paint
-//      nothing there, so the bottom screen stays empty.
+//   3. the auxiliary surface. The bottom-screen UIs (Wolfensvelte's
+//      BottomScreen, the shooter's HUD, AuxiliarySurface in
+//      @pocketjs/framework/svelte) draw into `ui.__auxiliarySurface`. Each
+//      build declares the profile's 320x240 auxiliary surface, and
+//      `display.auxiliary` with it (the resolver rejects either one on its
+//      own), so the resolved plan names the bottom screen as the app's and
+//      the runtime sizes `ui.__auxiliarySurface` from the plan. A plan
+//      without the surface still gets the whole bottom screen from
+//      products/3ds and the profile's 320x240 surface from engine/runtime,
+//      but nothing in its package says the app draws there.
 //
 // The demos' own capability set needs no help: they require text.glyphs.baked
-// and input.buttons, both of which 3ds-dev has.
+// and input.buttons, both of which 3ds-dev has. An app that presents below
+// 60 Hz declares it in <entry dir>/3ds/host.toml (`pocketjs_sim_hz`), which
+// products/3ds/build.ts reads; the build log line `presents at N Hz` is
+// repeated here.
 //
-// Manifests are committed files. This script rewrites one for the duration of
-// one build and restores it in a finally block (and on SIGINT/SIGTERM), so
+// Manifests are committed files. tools/build.ts reads the manifest next to the
+// entry to check the plan's compiler settings, so the rewrite has to be the
+// file at apps/<app>/pocket.app.json. This script rewrites it for the duration
+// of one build and restores it in a finally block (and on SIGINT/SIGTERM), so
 // nothing here may outlive the process.
 
 import { $ } from "bun";
@@ -41,6 +50,10 @@ import { THREE_DS_AUXILIARY_VIEWPORT, THREE_DS_VIEWPORT } from "./3ds-profile.ts
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const APPS = join(ROOT, "apps");
+/** The manifest file tools/3ds.ts reads for an app name. */
+export const MANIFEST_FILE = "pocket.app.json";
+/** Lines of a failed build's output repeated under its FAILED line. */
+const FAILURE_TAIL_LINES = 40;
 
 // tools/launcher.ts only knows psp, vita and symbian, so there is no
 // multi-app 3DS package for a shell to front. The launcher is a deck over
@@ -56,6 +69,8 @@ export interface Manifest {
     framework?: string;
     viewport?: unknown;
     surfaces?: unknown;
+    aot?: boolean;
+    model?: string;
   };
 }
 
@@ -90,6 +105,10 @@ export function threeDsSvelteManifest(manifest: Manifest, variant?: string): Man
   if (variant) {
     next.app.framework = "svelte";
     next.app.entry = variant;
+    // Solid AOT settings: tools/build.ts would lower the Svelte entry through
+    // the Solid compiler model.
+    delete next.app.aot;
+    delete next.app.model;
   }
   next.app.viewport = THREE_DS_MANIFEST_VIEWPORT;
   next.app.surfaces = THREE_DS_MANIFEST_SURFACES;
@@ -100,8 +119,8 @@ export function threeDsSvelteManifest(manifest: Manifest, variant?: string): Man
   return next;
 }
 
-function manifestPath(app: string): string {
-  return join(APPS, app, "pocket.json");
+export function manifestPath(app: string): string {
+  return join(APPS, app, MANIFEST_FILE);
 }
 
 function readManifest(app: string): Manifest | undefined {
@@ -133,6 +152,18 @@ export function svelteCapableApps(): SvelteApp[] {
       };
       return app.variant || app.declared ? [app] : [];
     });
+}
+
+/** The text of a failed tools/3ds.ts run: Bun's ShellError keeps both streams. */
+function failureOutput(error: unknown): string {
+  const streams = error as { stdout?: Uint8Array; stderr?: Uint8Array };
+  const decoder = new TextDecoder();
+  const text = [streams.stdout, streams.stderr]
+    .filter((s): s is Uint8Array => s instanceof Uint8Array)
+    .map((s) => decoder.decode(s))
+    .join("\n")
+    .trimEnd();
+  return text || (error instanceof Error ? error.message : String(error));
 }
 
 async function main(argv: readonly string[]): Promise<void> {
@@ -189,17 +220,26 @@ async function main(argv: readonly string[]): Promise<void> {
         `\n3ds-svelte: ${app.name} (${next.app.entry}) -> ` +
           `${THREE_DS_VIEWPORT.join("x")} native`,
       );
+      let log = "";
       try {
-        await $`bun tools/3ds.ts ${app.name} ${cia ? ["--cia"] : []}`.cwd(ROOT).quiet();
+        const result = await $`bun tools/3ds.ts ${app.name} ${cia ? ["--cia"] : []}`
+          .cwd(ROOT)
+          .quiet();
+        log = result.stdout.toString();
       } catch (error) {
-        if (!keepGoing) throw error;
-        const message = (error instanceof Error ? error.message : String(error)).split("\n")[0]!;
-        console.log(`  FAILED ${app.name}: ${message}`);
-        failed.push({ name: app.name, error: message });
+        const output = failureOutput(error);
+        const lines = output.split("\n");
+        console.log(`  FAILED ${app.name}; the last lines of tools/3ds.ts:`);
+        for (const line of lines.slice(-FAILURE_TAIL_LINES)) console.log(`    ${line}`);
+        if (!keepGoing) throw new Error(`3ds-svelte: ${app.name} failed`);
+        failed.push({ name: app.name, error: lines.findLast((l) => l.trim() !== "") ?? "" });
         continue;
       } finally {
         writeFileSync(path, original);
         backups.delete(path);
+      }
+      for (const line of log.split("\n")) {
+        if (line.includes("presents at")) console.log(`  ${line.trim()}`);
       }
 
       const artifacts = [
