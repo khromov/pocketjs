@@ -243,6 +243,25 @@ if (existsSync(xmbFragment)) {
     console.error(`PocketJS psp: ${error instanceof Error ? error.message : String(error)}`);
     process.exit(1);
   }
+  // The guest takes the fixed cadence only when it divides the package rate
+  // (programs/psp/src/instance.rs initialize); any other value would present
+  // at the profile's cadence. A multi-app package presents every guest at
+  // 20 Hz, and programs/psp/build.rs refuses a baked rate beside a registry.
+  const tickHz = buildPlan?.profile.tickHz;
+  if (simHz && tickHz !== undefined && tickHz % Number(simHz) !== 0) {
+    console.error(
+      `PocketJS psp: pocketjs_sim_hz = ${simHz} in ${xmbFragmentLabel} does not divide the package rate ` +
+        `(app.tickHz ${tickHz}); declare a rate that divides ${tickHz}.`,
+    );
+    process.exit(1);
+  }
+  if (simHz && launcherRegistry) {
+    console.error(
+      `PocketJS psp: pocketjs_sim_hz in ${xmbFragmentLabel} is a standalone rate; ` +
+        "a multi-app package (--launcher-registry) presents every guest at 20 Hz.",
+    );
+    process.exit(1);
+  }
   const rewritten = fragment.replace(SIM_HZ_LINE, "").replace(
     /^(\s*\w+_(?:png|pmf|at3))(\s*=\s*")(?!\/)([^"]+)(")/gm,
     (_m, key, eq, rel, close) => `${key}${eq}${fragDir}${rel}${close}`,

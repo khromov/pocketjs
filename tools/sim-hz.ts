@@ -1,8 +1,8 @@
 // tools/sim-hz.ts — the `pocketjs_sim_hz = <n>` line a console app declares
 // beside its packaging metadata (docs/DETERMINISM.md): <entry dir>/psp/Psp.toml
-// for the PSP (tools/psp.ts), <entry dir>/3ds/host.toml for the 3DS
-// (tools/3ds.ts). The host presents n frames per second and runs 60 / n core
-// ticks per frame, so n must divide the 60 Hz core rate.
+// for the PSP (tools/psp.ts → programs/psp/build.rs), <entry dir>/3ds/host.toml
+// for the 3DS (products/3ds/build.ts). The host presents n frames per second
+// and runs 60 / n core ticks per frame, so n must divide the 60 Hz core rate.
 
 /** Every `pocketjs_sim_hz` line in a TOML text, with its line break. */
 export const SIM_HZ_LINE = /^[ \t]*pocketjs_sim_hz\b.*(?:\r?\n|$)/gm;
