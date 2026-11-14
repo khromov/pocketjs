@@ -5,7 +5,8 @@
 // Run: bun test --conditions=browser,custom-renderer,production tests/renderer-svelte.test.ts
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { ANALOG_CENTER, BTN, NODE_TYPE, ROOT_ID, SCREEN_H, SCREEN_W } from "../contracts/spec/spec.ts";
+import { readFileSync } from "node:fs";
+import { ANALOG_CENTER, BTN, NODE_TYPE, PROP, ROOT_ID, SCREEN_H, SCREEN_W } from "../contracts/spec/spec.ts";
 import { TEXT_EVENT_KINDS } from "../contracts/spec/input.ts";
 import { installHost, publishViewport, type HostOps } from "../framework/src/host.ts";
 import { focusNode, resetInput } from "../framework/src/input.ts";
@@ -17,6 +18,7 @@ import { onTextEvent, type TextEvent, type TextEventRecord } from "../framework/
 import {
   flushSync,
   registerSprite,
+  registerTexture,
   render,
   resetRendererState,
   resetSprites,
@@ -488,6 +490,39 @@ describe("entry", () => {
       mountApp(Columns);
       frame(0, { text: [{ kind: TEXT_EVENT_KINDS.COMMIT, text: "again" }] });
       expect(seen).toHaveLength(1);
+    });
+  });
+
+  describe("demo twins", () => {
+    test("the hero twin wraps its underline every 8 presses and turns its spinner every 100 ms, as apps/hero/Hero.ts does", async () => {
+      const Hero = (await import("../apps/hero/app.svelte")).default;
+      // The app's class literals, as the Tailwind pass would have compiled them.
+      const source = readFileSync(new URL("../apps/hero/app.svelte", import.meta.url), "utf8");
+      const styles = Object.fromEntries(
+        [...source.matchAll(/(?:class=|, )"([a-z][^"]*)"/g)].map((match, index) => [match[1]!, index + 1]),
+      );
+      registerTexture("logo.png", 900);
+      registerSprite("spinner-atlas.svg", { handle: 3, frames: 8, cols: 4, step: 3 });
+      host.clear();
+      stop = entry.render(Hero, { ops: host.ops, styles });
+
+      // setSprite(node, handle, frames, cols, step): 6 core ticks, 100 ms at 60 Hz.
+      expect(host.of("setSprite").at(-1)!.slice(2)).toEqual([3, 8, 4, 6]);
+
+      const focusable = (node: NodeMirror): NodeMirror | undefined =>
+        node.focusable ? node : node.children.map(focusable).find(Boolean);
+      focusNode(focusable(rootMirror)!);
+      frame(0);
+      const offsets: unknown[] = [];
+      for (let press = 0; press < 12; press++) {
+        frame(BTN.CIRCLE);
+        frame(0);
+        offsets.push(host.of("setProp").filter((call) => call[2] === PROP.translateX).at(-1)![3]);
+      }
+      // underlineOffset(): imod(count, 8) * offsetStep, offsetStep 2.
+      expect(offsets).toEqual([2, 4, 6, 8, 10, 12, 14, 0, 2, 4, 6, 8]);
+      expect(texts(rootMirror)).toContain("Count: 12");
+      resetSprites();
     });
   });
 });

@@ -12,7 +12,8 @@
   let count = $state(0);
   let underline: NodeMirror | undefined;
   // The <Sprite> spinner rides the native sprite channel (the sprites.json atlas):
-  // the host advances its frames, so no JS runs per frame for it.
+  // the host advances its frames, so no JS runs per frame for it. Six core
+  // ticks a frame is 100 ms, the Solid hero's spinner period (Hero.ts).
 
   onMount(() => {
     // Underline sweeps in once on mount — native tween, zero steady-state JS.
@@ -47,11 +48,11 @@
     <Text class="text-xs text-blue-600 tracking-wide">ONE RUST CORE - ONE SVELTE APP</Text>
     <View class="flex-row items-center justify-between">
       <Text class="text-4xl text-slate-950 font-bold">Runes at {presentationHz} FPS.</Text>
-      <Sprite class="w-10 h-10" sprite="spinner-atlas.svg" />
+      <Sprite class="w-10 h-10" sprite="spinner-atlas.svg" frameStep={6} />
     </View>
     <View
       class="h-1 w-0 rounded-full shadow bg-gradient-to-r from-blue-500 to-cyan-500"
-      style={{ translateX: count * 2 }}
+      style={{ translateX: (count % 8) * 2 }}
       nodeRef={(node: NodeMirror) => (underline = node)}
     />
     <Text class="text-sm text-slate-600">
