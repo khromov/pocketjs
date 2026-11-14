@@ -45,6 +45,21 @@ Engine and site milestones, newest first. Versions track the
   **each presented frame advances two 60 Hz core ticks**, so game time keeps
   full speed. `apps/svelte-shooter` and `apps/wolfensvelte` declare it.
   `docs/DETERMINISM.md` follows the rate through each build.
+- **`audio:wav.*` entries can be 4-bit IMA ADPCM.** `openWav` in
+  `@pocketjs/framework/audio` returns a 16-bit PCM view or an IMA ADPCM
+  decoder that expands only the frames each `read()` returns, and
+  `createWavPlayer` plays either. `framework/compiler/ima-adpcm.ts` encodes
+  the files at build time. Wolfensvelte's two music tracks shrink from
+  **6.26 MB to 1.57 MB**.
+- **PSP EBOOTs ship without the PRX symbol table.** `tools/psp.ts` removes
+  `.symtab` and `.strtab` from the packed `DATA.PSP` (`stripPspPrx` in
+  `tools/psp-prx.ts`); the kernel relocates by segment, not by symbol, and
+  `target/…/pocketjs-psp.prx` keeps the symbols for debugging. That is
+  **about 320 KB per EBOOT**.
+- **The layout engine compiles taffy once.** Every solve in
+  `engine/core/src/layout.rs` goes through `solve_layout`, so taffy's generic
+  algorithms are instantiated for one measure closure instead of two:
+  **55 KB less MIPS code on the PSP** and 38 KB less wasm.
 
 ## 0.16.0 — November 2, 2026
 
