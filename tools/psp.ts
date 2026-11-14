@@ -34,7 +34,7 @@ import {
   hostBuildEnvironment,
 } from "../framework/src/manifest/host-build-inputs.ts";
 import { verifyPlanHash, type ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
-import { readSimHz, SIM_HZ_LINE } from "./sim-hz.ts";
+import { readSimHz, SIM_HZ_LINE, simHzMismatch } from "./sim-hz.ts";
 import { resolvePspBuildToolchain } from "./psp-toolchain.ts";
 import { POCKET_PROFILES } from "../hosts/index.ts";
 import type { RuntimeApplication, RuntimeBuildContext } from "../framework/src/host-config.ts";
@@ -248,11 +248,9 @@ if (existsSync(xmbFragment)) {
   // at the profile's cadence. A multi-app package presents every guest at
   // 20 Hz, and programs/psp/build.rs refuses a baked rate beside a registry.
   const tickHz = buildPlan?.profile.tickHz;
-  if (simHz && tickHz !== undefined && tickHz % Number(simHz) !== 0) {
-    console.error(
-      `PocketJS psp: pocketjs_sim_hz = ${simHz} in ${xmbFragmentLabel} does not divide the package rate ` +
-        `(app.tickHz ${tickHz}); declare a rate that divides ${tickHz}.`,
-    );
+  const rateMismatch = simHz && tickHz !== undefined ? simHzMismatch(Number(simHz), tickHz) : undefined;
+  if (rateMismatch) {
+    console.error(`PocketJS psp: pocketjs_sim_hz = ${simHz} in ${xmbFragmentLabel} ${rateMismatch}.`);
     process.exit(1);
   }
   if (simHz && launcherRegistry) {

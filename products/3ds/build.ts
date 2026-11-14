@@ -109,7 +109,7 @@ import {
   resolve3dsBuildPlan,
 } from "../../tools/3ds-profile.ts";
 import { makeVariant } from "../../tools/pocket-pack.ts";
-import { readSimHz } from "../../tools/sim-hz.ts";
+import { readSimHz, simHzMismatch } from "../../tools/sim-hz.ts";
 const softwareProfile = POCKET_PROFILES["3ds-dev"];
 
 const repository = new URL("../..", import.meta.url).pathname; // PocketJS/
@@ -582,6 +582,15 @@ export async function build3ds(argv: readonly string[], context?: RuntimeBuildCo
   const { plan, planPath, manifestPath } = context?.application ?? await loadBuildPlan(args);
   const inputs = extractHostBuildInputs(plan, { expectedTarget: TARGET_ID });
   const simHz = threeDsSimHz(plan.app.entry, args.projectRoot);
+  // src/qjs.c keeps the runtime's cadence for a rate the package rate does
+  // not admit; the build refuses it, as tools/psp.ts does.
+  const rateMismatch = simHz ? simHzMismatch(Number(simHz), plan.profile.tickHz) : undefined;
+  if (rateMismatch) {
+    throw new Error(
+      `PocketJS 3ds: pocketjs_sim_hz = ${simHz} in ` +
+        `${threeDsHostPolicy(plan.app.entry, args.projectRoot)} ${rateMismatch}.`,
+    );
+  }
   if (simHz) {
     console.log(
       `PocketJS 3ds: presents at ${simHz} Hz ` +

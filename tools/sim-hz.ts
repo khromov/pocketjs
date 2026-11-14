@@ -29,3 +29,20 @@ export function readSimHz(text: string, label: string): string {
   }
   return hz;
 }
+
+/**
+ * Why a guest whose package ticks at `tickHz` would keep the runtime's cadence
+ * under a declared `simHz`, or undefined when it takes the rate. The host
+ * applies the rate only when it divides the package rate and a frame runs at
+ * most 60 core ticks: programs/psp/src/instance.rs `fixed_cadence` and
+ * products/3ds/src/qjs.c guest_initialize.
+ */
+export function simHzMismatch(simHz: number, tickHz: number): string | undefined {
+  if (tickHz % simHz !== 0) {
+    return `does not divide the package rate (app.tickHz ${tickHz}); declare a rate that divides ${tickHz}`;
+  }
+  if (tickHz / simHz > 60) {
+    return `would run ${tickHz / simHz} core ticks a frame at app.tickHz ${tickHz}, over the 60 a frame takes`;
+  }
+  return undefined;
+}
