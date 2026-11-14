@@ -170,9 +170,12 @@ the launcher switches to presents at 60. For a guest at the rate:
   polls an empty frame; the 3DS input source, registered at compose, appends
   the buttons, sticks and contacts after it, so every guest turn sees the
   hardware state.
-- `begin_frame_wait` in `main.c` begins a frame **every `60 / rate` vblanks**
-  and counts the vblanks that passed during the previous frame's work: at
-  30 Hz a 10 ms frame waits two vblanks and a 25 ms frame waits one. A capture
+- `main.c` begins a frame **every `60 / rate` vblanks** and counts the
+  vblanks that passed during the previous frame's work: at 30 Hz a 10 ms frame
+  waits two vblanks and a 25 ms frame waits one. **The main loop waits at its
+  top, before `hidScanInput`** (`pace_frame`), so the guest's turn reads input
+  sampled at the vblank its frame begins at; a 60 Hz guest keeps its single
+  wait in `begin_frame`, after the scan. A capture
   build waits for no vblank and advances the same core ticks per frame, so its
   frame numbers count 30 Hz frames (the wolfensvelte spec in
   `tests/golden-specs.ts`).

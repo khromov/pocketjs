@@ -8,7 +8,8 @@
  * Runtime tick (contacts, guest, simulation, layout, render and terminal
  * display waits). A guest that presents below 60 Hz (qjs.h POCKETJS_SIM_HZ)
  * begins a frame every qjs_frame_vblanks() vblanks and advances 60 / its
- * rate core ticks in each one.
+ * rate core ticks in each one; its vblank waits run before hidScanInput
+ * (pace_frame), so its turn reads input from the vblank it begins at.
  *
  * The app owns a 400x240 primary surface and a simultaneous 320x240 auxiliary
  * surface. Both render targets are ROTATED, and Mtx_OrthoTilt in the PICA driver keeps
@@ -940,24 +941,16 @@ static uint32_t ticks_to_us(u64 ticks) {
 static u64 last_frame_begin;
 #endif
 
-/* Returns the vblanks waited beyond the first: nonzero when the previous
- * frame's GPU work was still running at the vblank.
+#ifndef POCKETJS_CAPTURE
+/* Waits for the vblank the next frame begins at.
  *
  * A guest that presents below 60 Hz begins a frame every
  * qjs_frame_vblanks() vblanks. The vblanks that passed during the previous
  * frame's work count toward them: after the first wait, waiting continues
  * only while the clock is more than half a refresh short of the vblank that
  * many refreshes after the previous frame's begin. At 30 Hz, 10 ms of work
- * waits two vblanks and 25 ms waits one. A capture build waits for no
- * vblank, so its frames depend on the tape alone. */
-static uint32_t begin_frame_wait(uint32_t run_frame) {
-#ifdef POCKETJS_CAPTURE
-  (void)run_frame;
-  C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
-  C3D_FrameEnd(0);
-  return 0;
-#else
-  loading_end();
+ * waits two vblanks and 25 ms waits one. */
+static void wait_frame_vblanks(void) {
   /* A bounded wait keeps HOME alive when the prior command list hangs. */
   gspWaitForVBlank();
   uint32_t vblanks = qjs_frame_vblanks();
@@ -966,6 +959,35 @@ static uint32_t begin_frame_wait(uint32_t run_frame) {
     for (uint32_t extra = 1; extra < vblanks && svcGetSystemTick() < due; extra++)
       gspWaitForVBlank();
   }
+}
+
+/* The top of the main loop, before hidScanInput: a guest that presents below
+ * 60 Hz waits for its frame's vblanks here and not in begin_frame, so the
+ * input its turn reads is sampled after the wait, as the PSP samples after
+ * its paced present. At 30 Hz a wait after the scan would hand the guest
+ * input one refresh older. A 60 Hz guest keeps its single wait in
+ * begin_frame. Returns whether it waited. */
+static bool pace_frame(void) {
+  if (qjs_frame_vblanks() <= 1 || launcher_pending()) return false;
+  wait_frame_vblanks();
+  return true;
+}
+#endif
+
+/* Returns the vblanks waited beyond the first: nonzero when the previous
+ * frame's GPU work was still running at the vblank. `paced` says the main
+ * loop already waited for the frame's vblanks (pace_frame). A capture build
+ * waits for no vblank, so its frames depend on the tape alone. */
+static uint32_t begin_frame(uint32_t run_frame, bool paced) {
+#ifdef POCKETJS_CAPTURE
+  (void)run_frame;
+  (void)paced;
+  C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
+  C3D_FrameEnd(0);
+  return 0;
+#else
+  loading_end();
+  if (!paced) wait_frame_vblanks();
   uint32_t waited = 0;
   while (!C3D_FrameBegin(C3D_FRAME_NONBLOCK)) {
     gspWaitForVBlank();
@@ -987,6 +1009,10 @@ static uint32_t begin_frame_wait(uint32_t run_frame) {
   last_frame_begin = svcGetSystemTick();
   return waited;
 #endif
+}
+
+static uint32_t begin_frame_wait(uint32_t run_frame) {
+  return begin_frame(run_frame, false);
 }
 
 
@@ -1538,6 +1564,12 @@ int main(void) {
 #endif
 
   while (aptMainLoop()) {
+#ifdef POCKETJS_CAPTURE
+    const bool paced = false;
+#else
+    u64 phase_pace __attribute__((unused)) = svcGetSystemTick();
+    bool paced = pace_frame();
+#endif
     u64 phase_loop __attribute__((unused)) = svcGetSystemTick();
     hidScanInput();
 #ifdef POCKETJS_CAPTURE
@@ -1697,12 +1729,13 @@ int main(void) {
     if (time_frame) frames_timed += 1;
 #endif
     u64 phase_wait __attribute__((unused)) = svcGetSystemTick();
-    uint32_t gpu_late __attribute__((unused)) = begin_frame_wait(
+    uint32_t gpu_late __attribute__((unused)) = begin_frame(
 #ifdef POCKETJS_CAPTURE
-      frame
+      frame,
 #else
-      run_frame
+      run_frame,
 #endif
+      paced
     );
     u64 phase_wait_end __attribute__((unused)) = svcGetSystemTick();
 #ifdef POCKETJS_EXTENSION
@@ -1802,7 +1835,7 @@ int main(void) {
           0,
           ticks_to_us(phase_js - previous_js),
           ticks_to_us((phase_wait - phase_loop) + (phase_js - phase_wait_end)),
-          ticks_to_us(phase_wait_end - phase_wait),
+          ticks_to_us((phase_wait_end - phase_wait) + (phase_loop - phase_pace)),
           0,
           gpu_late > 0
         );
