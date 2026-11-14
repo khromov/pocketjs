@@ -20,6 +20,7 @@
     "auxiliary": [320, 240]
   },
   "capabilities": [
+    "audio.pcm",
     "camera.photo",
     "camera.qr",
     "data.fs",

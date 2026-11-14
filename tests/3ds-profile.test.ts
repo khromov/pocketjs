@@ -87,10 +87,10 @@ describe("private Nintendo 3DS build profile", () => {
       rasterDensity: 1,
       policy: "fixed",
     });
-    // The nub is provided, so the enhancement resolves true; the host ships no
-    // audio module in v1, so audio.pcm resolves false instead of failing.
+    // The host provides the nub and ships the audio module
+    // (platforms/3ds/audio.c), so both enhancements resolve true.
     expect(plan.features).toEqual({
-      "audio.pcm": false,
+      "audio.pcm": true,
       "input.analog.left": true,
       "input.buttons": true,
       "text.glyphs.baked": true,

@@ -13,8 +13,8 @@ static const uint32_t pocket_3ds_profile_cadences[] = {60u};
 /* struct_size, id, id_length, tick_hz (highest cadence), input_classes, display, auxiliary, dynamic_viewport,
  * cadences, cadence_count, capabilities, capabilities_length, presentations, presentations_length, animation, animation_length */
 static const pocket_profile_facts pocket_3ds_profile = {sizeof(pocket_profile_facts), (const uint8_t *)"\x33\x64\x73\x2d\x64\x65\x76", 7u, 60u, 19u, &pocket_3ds_profile_display, &pocket_3ds_profile_auxiliary, NULL,
-    pocket_3ds_profile_cadences, 1u, (const uint8_t *)"camera.photo\0" "camera.qr\0" "data.fs\0" "display.auxiliary\0" "input.analog.left\0" "input.analog.right\0" "input.buttons\0" "input.cursor\0" "input.touch.auxiliary\0" "io.offload\0" "link.channel\0" "link.companion\0" "media.playback\0" "net.http\0" "runtime.worker\0" "system.agent\0" "system.extension\0" "system.wifi\0" "text.glyphs.baked\0" "ui.physics\0", 284u, (const uint8_t *)"native\0", 7u, (const uint8_t *)"composited", 10u};
-static const uint8_t pocket_3ds_profile_hash[32] = {9,102,151,123,50,52,160,123,123,33,101,25,73,22,208,250,20,86,113,49,1,198,150,225,19,173,141,145,1,199,172,207};
+    pocket_3ds_profile_cadences, 1u, (const uint8_t *)"audio.pcm\0" "camera.photo\0" "camera.qr\0" "data.fs\0" "display.auxiliary\0" "input.analog.left\0" "input.analog.right\0" "input.buttons\0" "input.cursor\0" "input.touch.auxiliary\0" "io.offload\0" "link.channel\0" "link.companion\0" "media.playback\0" "net.http\0" "runtime.worker\0" "system.agent\0" "system.extension\0" "system.wifi\0" "text.glyphs.baked\0" "ui.physics\0", 294u, (const uint8_t *)"native\0", 7u, (const uint8_t *)"composited", 10u};
+static const uint8_t pocket_3ds_profile_hash[32] = {229,58,96,223,204,255,25,78,241,137,181,171,39,8,30,112,62,158,91,160,207,144,88,126,114,14,60,125,5,221,43,85};
 #define POCKET_3DS_OP_createNode 1u
 #define POCKET_3DS_OP_destroyNode 2u
 #define POCKET_3DS_OP_insertBefore 3u
