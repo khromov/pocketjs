@@ -1,25 +1,20 @@
 {
   "$schema": "https://pocketjs.dev/schema/pocket-2.json",
   "pocket": 2,
-  "id": "dev.pocket-stack.svelte.shooter",
-  "name": "pocketjs-svelte-shooter",
-  "title": "PocketJS: Svelte Shooter",
-  "version": "0.1.0",
+  "id": "dev.pocket-nexus.svelte.snake",
+  "title": "PocketJS: Svelte Snake",
+  "version": "0.6.0",
   "engine": {
     "capabilities": {
       "requires": [
         "text.glyphs.baked",
         "input.buttons"
-      ],
-      "enhances": [
-        "input.analog.left",
-        "audio.pcm"
       ]
     }
   },
   "app": {
-    "entry": "apps/svelte-shooter/main.ts",
-    "output": "svelte-shooter-main",
+    "entry": "apps/svelte-snake/main.ts",
+    "output": "svelte-snake-main",
     "framework": "svelte",
     "viewport": {
       "fixed": {

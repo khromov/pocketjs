@@ -1,9 +1,8 @@
 {
   "$schema": "https://pocketjs.dev/schema/pocket-2.json",
   "pocket": 2,
-  "id": "dev.pocket-stack.svelte.snake",
-  "name": "pocketjs-svelte-snake",
-  "title": "PocketJS: Svelte Snake",
+  "id": "dev.pocket-nexus.svelte.lab",
+  "title": "PocketJS: Svelte Feature Lab",
   "version": "0.6.0",
   "engine": {
     "capabilities": {
@@ -14,8 +13,8 @@
     }
   },
   "app": {
-    "entry": "apps/svelte-snake/main.ts",
-    "output": "svelte-snake-main",
+    "entry": "apps/svelte-lab/main.ts",
+    "output": "svelte-lab-main",
     "framework": "svelte",
     "viewport": {
       "fixed": {

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { BTN } from "../contracts/spec/spec.ts";
-import { createSimAudioSink } from "../hosts/sim/audio.ts";
-import { bootWorld, fnv1a, treeHasText, type SimWorld } from "../hosts/sim/sim.ts";
+import { createSimAudioSink } from "../platforms/sim/audio.ts";
+import { bootWorld, fnv1a, treeHasText, type SimWorld } from "../programs/sim/sim.ts";
 
 const APP = "svelte-shooter-main.svelte";
 

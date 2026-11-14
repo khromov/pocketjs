@@ -1,10 +1,10 @@
-// Music and effects through the sim audio sink (hosts/sim/audio.ts): the
+// Music and effects through the sim audio sink (platforms/sim/audio.ts): the
 // title plays the menu track, START swaps in the level track, a shot opens an
 // effect voice beside it, and a track that runs out restarts.
 import { describe, expect, test } from "bun:test";
 import { BTN } from "../contracts/spec/spec.ts";
-import { createSimAudioSink, type SimAudioSink } from "../hosts/sim/audio.ts";
-import { bootWorld, type SimWorld } from "../hosts/sim/sim.ts";
+import { createSimAudioSink, type SimAudioSink } from "../platforms/sim/audio.ts";
+import { bootWorld, type SimWorld } from "../programs/sim/sim.ts";
 
 const APP = "wolfensvelte-main.svelte";
 const RATE = 11025;

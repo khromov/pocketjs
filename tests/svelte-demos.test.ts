@@ -2,7 +2,7 @@
 // same text as the Solid original it was ported from.
 
 import { describe, expect, test } from "bun:test";
-import { bootWorld, treeHasText, type SimWorld } from "../hosts/sim/sim.ts";
+import { bootWorld, treeHasText, type SimWorld } from "../programs/sim/sim.ts";
 import { BTN } from "../contracts/spec/spec.ts";
 
 async function step(world: SimWorld, buttons: number): Promise<void> {

@@ -6,7 +6,7 @@
 //
 // tools/build.ts --framework=svelte names its output <app>.svelte, so the
 // Svelte bundles are already distinguishable inside a dist/ shared with Solid,
-// Vue Vapor and Octane builds. This serves the same hosts/web dev server with
+// Vue Vapor and Octane builds. This serves the same tools/dev/web dev server with
 // POCKETJS_DEMO_FILTER pinned to that suffix, so the picker lists the Svelte
 // demos and nothing else.
 //
@@ -31,7 +31,7 @@ const demos = readdirSync(APPS, { withFileTypes: true })
   .flatMap((name) => {
     let manifest: { app?: { output?: string; framework?: string } };
     try {
-      manifest = JSON.parse(readFileSync(join(APPS, name, "pocket.json"), "utf8"));
+      manifest = JSON.parse(readFileSync(join(APPS, name, "pocket.app.json"), "utf8"));
     } catch {
       return [];
     }
@@ -61,4 +61,4 @@ if (build) {
 // Set before importing serve.ts — demoManifest() reads it per request, but the
 // startup banner is printed at import time.
 process.env.POCKETJS_DEMO_FILTER = "\\.svelte$";
-await import("../hosts/web/serve.ts");
+await import("./dev/web/serve.ts");

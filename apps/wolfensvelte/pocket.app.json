@@ -1,8 +1,7 @@
 {
   "$schema": "https://pocketjs.dev/schema/pocket-2.json",
   "pocket": 2,
-  "id": "dev.pocket-stack.svelte.wolfensvelte",
-  "name": "pocketjs-wolfensvelte",
+  "id": "dev.pocket-nexus.svelte.wolfensvelte",
   "title": "PocketJS: Wolfensvelte 3D",
   "version": "0.1.0",
   "engine": {

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { BTN } from "../contracts/spec/spec.ts";
-import { bootWorld, treeHasText, type SimWorld } from "../hosts/sim/sim.ts";
+import { bootWorld, treeHasText, type SimWorld } from "../programs/sim/sim.ts";
 
 const APP = "wolfensvelte-main.svelte";
 /** GetPsyched shows for PSYCHED_FRAMES (90) host frames before play begins. */
