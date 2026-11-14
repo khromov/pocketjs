@@ -8,7 +8,9 @@
 //   art/*.png          pow2 textures: the wall and sprite atlases (512x512, 8x8
 //                      cells of 64x64), HUD pieces, menu screens, weapon hands,
 //                      the E1M1 overview map
-//   sfx/*.wav          effects resampled to 11025 Hz s16 mono (contracts/spec/audio.ts)
+//   sfx/*.wav          effects resampled to 11025 Hz s16 mono, and the two music
+//                      tracks at 11025 Hz mono as 4-bit IMA ADPCM
+//                      (contracts/spec/audio.ts)
 //   images.json        pixel formats per image (0 = 5650 opaque, 2 = 4444)
 //   pak.json           the audio:wav.* raw blobs
 //   game/level-e1m1.ts the level as flat arrays (never the 4269-line object literal)
@@ -24,6 +26,8 @@ import { decodeBmp } from "./cook/bmp.ts";
 import { blank, blit, crop, downsample, fillRect, flatten, pad, resize } from "./cook/image.ts";
 import { decodePng, encodePng, type Rgba } from "./cook/png.ts";
 import { decodeWavAny, encodeWav16Mono, resample } from "./cook/wav.ts";
+import { encodeImaAdpcmWav } from "../../framework/compiler/ima-adpcm.ts";
+import { decodeWav } from "../../framework/src/audio-api.ts";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 const ROOT = join(HERE, "..", "..");
@@ -34,6 +38,10 @@ const CELL = 64;
 const ATLAS = 512;
 const ATLAS_COLS = ATLAS / CELL;
 const SFX_RATE = 11025;
+/** Beam width of the music's ADPCM code search: 16 lifts the SNR by about
+ *  1.6 dB over the plain quantizer (menu 19.3 -> 21.1 dB, E1M1 25.6 -> 27.1)
+ *  for ~10 s of cooking; wider beams add under 0.3 dB per doubling. */
+const MUSIC_SEARCH = 16;
 
 // ---------------------------------------------------------------------------
 // Source checkout
@@ -368,8 +376,11 @@ const FACE_FILES: Record<string, string[]> = {
 
 // Music comes as MP3 in the source. The cooker converts it with macOS
 // afconvert (CoreAudio) to the lowest rate the audio contract allows,
-// 11025 Hz s16 mono, and commits the result like the effects; when afconvert
-// is absent the committed WAVs are kept as they are.
+// 11025 Hz s16 mono, then encodes that as 4-bit IMA ADPCM
+// (framework/compiler/ima-adpcm.ts): 284 s of music in 1.6 MB instead of
+// 6.3 MB. The console decodes it a block at a time as it plays. When afconvert
+// is absent the committed tracks are kept as they are (re-encoding a decoded
+// ADPCM track would add a second generation of quantization noise).
 const MUSIC: Record<string, string> = {
   "music-menu": "music/menu.mp3",
   "music-e1m1": "music/E1M1.mp3",
@@ -485,23 +496,26 @@ async function main(): Promise<void> {
 
   for (const [name, rel] of Object.entries(MUSIC)) {
     const out = join(sfx, `${name}.wav`);
-    const converter = Bun.which("afconvert");
-    if (converter) {
-      const proc = Bun.spawnSync([converter, "-f", "WAVE", "-d", `LEI16@${SFX_RATE}`, "-c", "1", join(src, "src/lib", rel), out]);
-      if (proc.exitCode !== 0) throw new Error(`afconvert failed for ${rel}: ${proc.stderr.toString()}`);
-    } else if (!existsSync(out)) {
-      throw new Error(`${name}: afconvert is not available and ${out} does not exist yet`);
-    } else {
-      console.log(`  ${name}: afconvert not found, keeping the committed WAV`);
-    }
-    // Round-trip through the cooker's WAV writer so the header is exactly the
-    // shape decodeWav expects (a plain 44-byte PCM header, no extra chunks).
-    const pcm = decodeWavAny(new Uint8Array(readFileSync(out)), name);
-    const wav = encodeWav16Mono(resample(pcm, SFX_RATE));
-    writeFileSync(out, wav);
     pak.push({ key: `audio:wav.${name}`, file: `sfx/${name}.wav`, requires: "audio.pcm" });
+    const converter = Bun.which("afconvert");
+    if (!converter) {
+      if (!existsSync(out)) throw new Error(`${name}: afconvert is not available and ${out} does not exist yet`);
+      console.log(`  ${name}: afconvert not found, keeping the committed track`);
+      pakBytes += readFileSync(out).length;
+      continue;
+    }
+    const pcmPath = join(sfx, `${name}.pcm.wav`);
+    const proc = Bun.spawnSync([converter, "-f", "WAVE", "-d", `LEI16@${SFX_RATE}`, "-c", "1", join(src, "src/lib", rel), pcmPath]);
+    if (proc.exitCode !== 0) throw new Error(`afconvert failed for ${rel}: ${proc.stderr.toString()}`);
+    const pcm = resample(decodeWavAny(new Uint8Array(readFileSync(pcmPath)), name), SFX_RATE);
+    rmSync(pcmPath);
+    // The cooker's 16-bit writer fixes the samples (its rounding), then the
+    // ADPCM encoder quantizes those.
+    const s16 = decodeWav(encodeWav16Mono(pcm)).data;
+    const wav = encodeImaAdpcmWav(s16, SFX_RATE, 1, { search: MUSIC_SEARCH });
+    writeFileSync(out, wav);
     pakBytes += wav.length;
-    console.log(`  ${name}: ${(pcm.samples.length / SFX_RATE).toFixed(0)} s, ${(wav.length / 1024).toFixed(0)} KB`);
+    console.log(`  ${name}: ${(pcm.samples.length / SFX_RATE).toFixed(0)} s, ${(wav.length / 1024).toFixed(0)} KB (IMA ADPCM)`);
   }
 
   // -- manifests + generated code -----------------------------------------------

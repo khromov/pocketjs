@@ -2,28 +2,29 @@
 // 3DS mount (the 3DS only with sdmc:/3ds/dspfirm.cdc on the card). Where no
 // module is mounted every call is a no-op. Effects use three round-robin
 // voices so a shot, a door and a bark can overlap; music holds a fourth
-// stream and loops. Each track decodes once, as a view over the pak bytes
-// (never a copy).
+// stream and loops. Each track opens once over the pak bytes (never a copy):
+// the effects are 16-bit PCM views, the two music tracks 4-bit IMA ADPCM that
+// the player expands a block at a time as it feeds the ring.
 
 import { pakView } from "@pocketjs/framework/svelte";
-import { audioHost, createWavPlayer, decodeWav, type WavPcm, type WavPlayer } from "@pocketjs/framework/svelte/audio";
+import { audioHost, createWavPlayer, openWav, type WavPlayer, type WavTrack } from "@pocketjs/framework/svelte/audio";
 
 const VOICES = 3;
 const SFX_VOLUME = 0.7;
 /** helpers/music.ts WebAudioCore sets its gain to 0.5. */
 const MUSIC_VOLUME = 0.5;
 
-const cache = new Map<string, WavPcm>();
+const cache = new Map<string, WavTrack>();
 const missing = new Set<string>();
 
-function pcmFor(name: string): WavPcm | null {
+function pcmFor(name: string): WavTrack | null {
   if (missing.has(name)) return null;
   let pcm = cache.get(name);
   if (!pcm) {
     try {
-      // A view, not a copy: the music tracks are megabytes, and a copy into
-      // the QuickJS heap fails on the console (a failed track stays silent).
-      pcm = decodeWav(pakView(`audio:wav.${name}`));
+      // A view, not a copy: a track copied into the QuickJS heap can fail on
+      // the console (a failed track stays silent).
+      pcm = openWav(pakView(`audio:wav.${name}`));
     } catch {
       missing.add(name);
       return null;
