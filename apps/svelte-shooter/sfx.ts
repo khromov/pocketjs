@@ -2,9 +2,11 @@
 //
 // Every clip is generated once at start-up (deterministic; no assets), then
 // played through three round-robin WavPlayers so a shot, a hit and an
-// explosion can overlap — the apps/wolfensvelte shape. Where the host mounts
-// no audio module (sim, consoles) createSfx() returns a silent object and
-// nothing else in the app changes: sound never feeds back into the game.
+// explosion can overlap — the apps/wolfensvelte shape. The web host, the PSP
+// and the 3DS (with sdmc:/3ds/dspfirm.cdc) mount the module. Where the host
+// mounts none (the sim, a target without audio.pcm) createSfx() returns a
+// silent object and nothing else in the app changes: sound never feeds back
+// into the game.
 
 import { audioHost, createWavPlayer, type WavPcm, type WavPlayer } from "@pocketjs/framework/svelte/audio";
 

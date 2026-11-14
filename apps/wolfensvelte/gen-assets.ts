@@ -473,7 +473,7 @@ async function main(): Promise<void> {
 
   // -- sounds -------------------------------------------------------------------
   // Every audio blob is tagged with the capability it needs, so a plan-driven
-  // build for a target without an audio module (the 3DS) leaves them out.
+  // build for a target without audio.pcm leaves them out.
   const pak: { key: string; file: string; requires: string }[] = [];
   for (const [name, rel] of Object.entries(SOUNDS)) {
     const pcm = resample(decodeWavAny(new Uint8Array(readFileSync(join(src, "src/lib", rel))), rel), SFX_RATE);

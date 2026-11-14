@@ -1,7 +1,9 @@
-// Sound over the PocketJS audio module (PSP today; absent on the 3DS, where
-// every call is a no-op). Effects use three round-robin voices so a shot, a
-// door and a bark can overlap; music holds a fourth stream and loops. Each
-// track decodes once, as a view over the pak bytes (never a copy).
+// Sound over the PocketJS audio module, which the web host, the PSP and the
+// 3DS mount (the 3DS only with sdmc:/3ds/dspfirm.cdc on the card). Where no
+// module is mounted every call is a no-op. Effects use three round-robin
+// voices so a shot, a door and a bark can overlap; music holds a fourth
+// stream and loops. Each track decodes once, as a view over the pak bytes
+// (never a copy).
 
 import { pakView } from "@pocketjs/framework/svelte";
 import { audioHost, createWavPlayer, decodeWav, type WavPcm, type WavPlayer } from "@pocketjs/framework/svelte/audio";

@@ -3,7 +3,8 @@
 // One WavPlayer streaming audio:wav.theme from the pak; the fourth of the
 // host's four streams beside the three effect voices. The player reports the
 // host's "ended" fact, so the loop is a rewind and a play (the wolfensvelte
-// shape). Where no audio module is mounted, or the pak carries no theme
+// shape). The web host, the PSP and the 3DS (with sdmc:/3ds/dspfirm.cdc)
+// mount the module. Where none is mounted, or the pak carries no theme
 // (targets without audio.pcm leave it out), every call is a no-op.
 
 import { audioHost, createWavPlayer, type WavPlayer } from "@pocketjs/framework/svelte/audio";

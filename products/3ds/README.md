@@ -44,7 +44,7 @@ src/photos.c          camera.photo: JPEG save, list, decode, thumbnails
 src/photos_jpeg.c     JPEG through libjpeg for photos.c
 src/input_policy.c    reserved product chords and development-menu input latch
 engine/host-services/ link, launcher, fs, JSON, SHA-256, photo images, quirc
-platforms/3ds/        shared hooks, unreserved HID facts and input source
+platforms/3ds/        shared hooks, unreserved HID facts, input source and the NDSP audio module
 devices/3ds/          PICA renderer and vertex shader
 Makefile              native build driven by this product’s build.ts
 ```
@@ -731,6 +731,54 @@ runs each scenario against it and the sim's fs host (`platforms/sim/fs.ts`), op 
 op, result and `lastError` both, plus the FAT path and that recovery. Capture
 builds leave the tree unbound.
 
+## Audio
+
+A guest that declares `audio.pcm` gets `globalThis.audio`
+([contracts/spec/audio.ts](../../contracts/spec/audio.ts)) from
+`platforms/3ds/audio.c`: **up to four streams, each on its own NDSP channel,
+8 to 11**, at the stream's source rate (44100, 22050 or 11025 Hz) in mono or
+stereo PCM16 with linear interpolation. `platforms/3ds/media.c` plays
+companion video sound on channel 0. Each stream has a **16384-frame ring in
+linear memory** (64 KiB a stream), allocated at the first audio guest's bind
+and kept until the process exits; wave buffers point into the ring without a
+copy. There is no audio thread: the main loop calls
+`pocket_3ds_audio_service()` once per presented frame, before the guest's
+frame, to retire played buffers, queue held frames and record the underrun
+and ended facts that `poll()` reports. Handles, refusals, `writePcm`'s
+accepted-frame count and the event text and order match
+`platforms/psp/audio/src/streams.rs`.
+
+**NDSP stays initialized for the life of the process.** libctru's `ndspInit`
+initializes when its reference count goes from 0 to 1, `ndspExit` finalizes
+when it goes from 1 to 0, and neither waits for the other. `main()` calls
+`pocket_3ds_audio_start()` before `media_start()` creates the media worker,
+and `pocket_3ds_audio_shutdown()` runs after `media_stop()` has joined that
+worker, at process exit and in `fail()`. The worker's per-stream `ndspInit`
+and `ndspExit` then move the count between 1 and 2 and never initialize or
+finalize NDSP. `boot_guest` binds the module before `qjs_boot` for a plan
+with `audio.pcm`; `qjs_shutdown` resets it at a guest switch, and handle
+generations continue, so a handle of the previous guest names no stream.
+
+**NDSP needs the DSP firmware at `sdmc:/3ds/dspfirm.cdc`.** Luma3DS writes it
+from Rosalina: L+Down+SELECT, *Miscellaneous options*, *Dump DSP firmware*.
+Without the file `ndspInit` fails and the process does not retry it: guests
+boot without `globalThis.audio`, their sound calls are no-ops, and each audio
+guest's boot records `audio-init` with *audio: DSP firmware missing
+(sdmc:/3ds/dspfirm.cdc); dump it in Rosalina and restart*. Restart the app
+after the dump.
+
+Capture builds never start NDSP and never mount `audio`, so goldens and input
+tapes run without sound. The development menu shows one audio line:
+`audio: dsp ok, N/4 streams, U underruns`, or the reason NDSP did not start.
+
+`hosts/3ds-dev/pocket.host.json` advertises `audio.pcm`, so a plan-driven
+build keeps the `pak.json` entries marked `"requires": "audio.pcm"`
+(wolfensvelte's `audio:wav.*` effects and music, the shooter's theme). A
+runtime built before the capability refuses a package whose plan has
+`audio.pcm`: rebuild the runtime with its packages. `tests/3ds-audio.test.ts`
+compiles `audio.c` for the host under ASan and UBSan against a fake NDSP that
+follows libctru's channel and wave-buffer rules.
+
 ## The agent stage
 
 A guest that declares `system.agent` gets the top screen drawn by the host:
@@ -960,7 +1008,8 @@ part of it, so a run gets its own config and SD card by getting its own `$HOME`.
 `input.touch` is absent from the host contract. The touchscreen belongs
 to the **bottom auxiliary surface**, so it is exposed only as
 `input.touch.auxiliary`; contacts are never remapped into the top screen's
-coordinate space. `audio.pcm` is not implemented in v1.
+coordinate space. `audio.capture` is absent: `globalThis.audio` has no
+`openInput`, `readInput` or `closeInput`.
 
 The New 3DS C-stick is exposed as the optional right analog lane. Applications
 read `rightAnalogX()` / `rightAnalogY()` from the framework lifecycle API, using
