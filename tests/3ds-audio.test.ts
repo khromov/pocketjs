@@ -132,3 +132,15 @@ describe("3DS audio module", () => {
     expect(accepted).toEqual([...AUDIO_RATES]);
   });
 });
+
+// A CIA runs under its own exheader: ndspInit writes the DSP's shared memory
+// at 0x1FF50000 and up, so products/3ds/app.rsf must map 0x1FF00000-0x1FF7FFFF.
+// Without it every CIA took a data abort inside ndspInitialize at boot, which
+// the host harness and the .3dsx in Azahar (the Homebrew Launcher's exheader
+// maps the range) never showed.
+test("the 3DS CIA exheader maps DSP memory for the NDSP the runtime starts", () => {
+  const audio = readFileSync(join(root, "platforms/3ds/audio.c"), "utf8");
+  expect(audio).toMatch(/\bndspInit\(\)/);
+  const rsf = readFileSync(join(root, "products/3ds/app.rsf"), "utf8");
+  expect(rsf).toMatch(/^  IORegisterMapping:\n(?:\s*#.*\n)*\s+- 1ff00000-1ff7ffff\b/m);
+});

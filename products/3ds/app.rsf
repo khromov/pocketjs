@@ -151,6 +151,13 @@ AccessControlInfo:
     UnmapMemoryBlock: 32
     WaitSynchronization1: 36
     WaitSynchronizationN: 37
+  # DSP memory. ndspInit (platforms/3ds/audio.c at boot, platforms/3ds/media.c
+  # per stream) writes the DSP's shared structures at 0x1FF50000 and up; the
+  # dsp::DSP service alone does not map them, and without this range a CIA
+  # takes a data abort (translation fault) inside ndspInitialize. A .3dsx runs
+  # under the Homebrew Launcher's exheader, which maps it.
+  IORegisterMapping:
+    - 1ff00000-1ff7ffff
   InterruptNumbers:
   ServiceAccessControl:
    - APT:U
