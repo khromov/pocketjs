@@ -18,6 +18,8 @@
 #   POCKETJS_SMDH_DESC
 #   POCKETJS_SIM_HZ          presentation rate of the embedded app, a divisor
 #                            of 60; empty presents at 60 (src/qjs.h)
+#   POCKETJS_ICON            the app's 48x48 SMDH icon; empty uses the platform's
+#   POCKETJS_ICON_SMALL      the app's 24x24 SMDH icon; empty reduces POCKETJS_ICON
 #   POCKETJS_EXTENSION       a directory whose extension.mk adds a product extension
 #                            (include/pocket_extension.h)
 #   POCKETJS_EXTENSION_ROMFS the directory staged as romfs:/extension
@@ -63,10 +65,11 @@ BUILD := $(POCKETJS_BUILD_DIR)
 OUT := $(POCKETJS_OUT_3DSX)
 # 3dsxtool reads the recovery guest out of a RomFS directory.
 ROMFS := $(BUILD)/romfs
-ICON ?= $(PLATFORM_SOURCE)/icon.png
+# The app's icon (POCKETJS_ICON, <entry dir>/3ds/icon.png) or the platform's.
+ICON ?= $(if $(POCKETJS_ICON),$(POCKETJS_ICON),$(PLATFORM_SOURCE)/icon.png)
 # Custom large icons keep smdhtool's automatic reduction unless their caller
 # also supplies SMALL_ICON. The host default has a separate optical drawing.
-SMALL_ICON ?= $(if $(filter $(PLATFORM_SOURCE)/icon.png,$(ICON)),$(PLATFORM_SOURCE)/icon-small.png,)
+SMALL_ICON ?= $(if $(POCKETJS_ICON_SMALL),$(POCKETJS_ICON_SMALL),$(if $(filter $(PLATFORM_SOURCE)/icon.png,$(ICON)),$(PLATFORM_SOURCE)/icon-small.png,))
 CIA := $(POCKETJS_OUT_CIA)
 RSF := $(CURDIR)/app.rsf
 
@@ -304,15 +307,17 @@ $(EXTENSION_ROMFS_STAMP): $(EXTENSION_ROMFS_STAMP).probe ;
 endif
 
 # 3dsxtool refuses to embed a RomFS without SMDH metadata, so one is always
-# built, from the app's own strings over the host's icon. The strings affect
-# the artifact but are not files, so a content stamp invalidates the SMDH when
-# a manifest title/id changes. Recipes expand the environment in the shell,
+# built, from the app's own strings over its icon (the platform's when it ships
+# none). The strings affect the artifact but are not files, so a content stamp
+# invalidates the SMDH when a manifest title/id changes. The icon paths are in
+# the stamp too: switching back to the platform icon, an older file, would not
+# rebuild the SMDH by mtime alone. Recipes expand the environment in the shell,
 # inside quotes: manifest text never becomes shell syntax through make.
 SMDH_STAMP := $(BUILD)/smdh.stamp
 .PHONY: $(SMDH_STAMP).probe
 $(SMDH_STAMP).probe: | $(BUILD)
-	@printf '%s\n%s\n%s\n' "$$POCKETJS_SMDH_TITLE" "$$POCKETJS_SMDH_DESC" \
-	  "$$POCKETJS_SMDH_AUTHOR" > $(SMDH_STAMP).new
+	@printf '%s\n%s\n%s\n%s\n%s\n' "$$POCKETJS_SMDH_TITLE" "$$POCKETJS_SMDH_DESC" \
+	  "$$POCKETJS_SMDH_AUTHOR" "$(ICON)" "$(SMALL_ICON)" > $(SMDH_STAMP).new
 	@cmp -s $(SMDH_STAMP).new $(SMDH_STAMP) || mv $(SMDH_STAMP).new $(SMDH_STAMP)
 	@rm -f $(SMDH_STAMP).new
 $(SMDH_STAMP): $(SMDH_STAMP).probe ;

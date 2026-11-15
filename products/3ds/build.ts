@@ -52,6 +52,9 @@ import { capture, prepareNative3ds, runNative3dsMake } from "../../tools/build/3
 //   POCKETJS_SMDH_DESC     application description
 //   POCKETJS_SIM_HZ        presentation rate from <entry dir>/3ds/host.toml,
 //                          "" for 60 (threeDsSimHz)
+//   POCKETJS_ICON          the app's 48x48 SMDH icon, <entry dir>/3ds/icon.png,
+//                          "" for platforms/3ds/icon.png (homeMenuIcons)
+//   POCKETJS_ICON_SMALL    the app's 24x24 SMDH icon, "" to reduce the large one
 //   POCKETJS_CAPTURE       "1" under --capture, "" otherwise
 //   POCKETJS_CAPTURE_INPUT scripted input tape ("frame:mask,…"), baked in
 //   POCKETJS_CAPTURE_TOUCH scripted bottom-screen touch tape, baked in
@@ -93,7 +96,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { availableParallelism } from "node:os";
-import { dirname, join, resolve as resolvePath } from "node:path";
+import { dirname, join, relative as relativePath, resolve as resolvePath } from "node:path";
 import { encodePocketPackage } from "../../contracts/spec/pocket-package.ts";
 import {
   extractHostBuildInputs,
@@ -545,6 +548,56 @@ export function threeDsSimHz(entry: string, projectRoot: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// HOME Menu icon
+// ---------------------------------------------------------------------------
+
+/** smdhtool's large icon is 48x48; its small one, 24x24. */
+export const HOME_MENU_ICON_SIZE = 48;
+export const HOME_MENU_SMALL_ICON_SIZE = 24;
+
+export interface HomeMenuIcons {
+  /** The 48x48 icon HOME Menu draws on the app's tile. */
+  readonly icon: string;
+  /** A hand-drawn 24x24 reduction; absent, smdhtool reduces the large icon. */
+  readonly small?: string;
+}
+
+/** Width and height from a PNG's IHDR, or undefined when the bytes are not a PNG. */
+function pngSize(bytes: Uint8Array): [number, number] | undefined {
+  const signature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  if (bytes.length < 24 || signature.some((byte, i) => bytes[i] !== byte)) return undefined;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  return [view.getUint32(16), view.getUint32(20)];
+}
+
+/**
+ * The app's own SMDH icon: `<entry dir>/3ds/icon.png`, plus an optional
+ * `3ds/icon-small.png`, beside threeDsHostPolicy()'s host.toml and the
+ * 3DS counterpart of the PSP's `<entry dir>/psp/` XMB art. Undefined when the
+ * app ships none, and the build falls back to platforms/3ds/icon.png. A wrong
+ * size throws here, before the container starts, rather than inside smdhtool.
+ */
+export function homeMenuIcons(entry: string, projectRoot: string): HomeMenuIcons | undefined {
+  const directory = resolvePath(projectRoot, entry, "..", "3ds");
+  const icon = join(directory, "icon.png");
+  if (!existsSync(icon)) return undefined;
+  const check = (path: string, size: number): void => {
+    const found = pngSize(new Uint8Array(readFileSync(path)));
+    if (!found || found[0] !== size || found[1] !== size) {
+      throw new Error(
+        `PocketJS 3ds: ${path} must be a ${size}x${size} PNG` +
+          (found ? `, found ${found[0]}x${found[1]}` : ", found no PNG header"),
+      );
+    }
+  };
+  check(icon, HOME_MENU_ICON_SIZE);
+  const small = join(directory, "icon-small.png");
+  if (!existsSync(small)) return { icon };
+  check(small, HOME_MENU_SMALL_ICON_SIZE);
+  return { icon, small };
+}
+
+// ---------------------------------------------------------------------------
 // Native steps shared with tools/runtime/3ds.ts
 // ---------------------------------------------------------------------------
 
@@ -675,6 +728,10 @@ export async function build3ds(argv: readonly string[], context?: RuntimeBuildCo
   }
   const output = join(args.packageDir, `${inputs.appOutput}.3dsx`);
   const ciaOutput = join(args.packageDir, `${inputs.appOutput}.cia`);
+  const icons = homeMenuIcons(plan.app.entry, args.projectRoot);
+  console.log(
+    `PocketJS 3ds: HOME Menu icon ${icons ? relativePath(args.projectRoot, icons.icon) : "platforms/3ds/icon.png (default)"}`,
+  );
   const makeEnvironment: Record<string, string> = {
     ...hostBuildEnvironment(inputs, {
       outputDirectory: containerPathFor(args.outputDir, mounts),
@@ -695,6 +752,8 @@ export async function build3ds(argv: readonly string[], context?: RuntimeBuildCo
     POCKETJS_SMDH_AUTHOR: plan.app.id,
     POCKETJS_SMDH_DESC: `PocketJS ${plan.app.title}`,
     POCKETJS_SIM_HZ: simHz,
+    POCKETJS_ICON: icons ? containerPathFor(icons.icon, mounts) : "",
+    POCKETJS_ICON_SMALL: icons?.small ? containerPathFor(icons.small, mounts) : "",
     POCKETJS_CAPTURE: args.capture ? "1" : "",
     // Explicit so a previous run's tape never lingers in the object cache.
     POCKETJS_CAPTURE_INPUT: capture.input,

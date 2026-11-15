@@ -7,6 +7,11 @@
 // runScenario the golden suites use, dimmed left-heavy so the XMB column
 // stays legible. Writes apps/<demo>/psp/{Psp.toml,icon0.png,pic1.png};
 // tools/psp.ts picks the fragment up for EVERY framework build of the demo.
+// It also writes apps/<demo>/3ds/icon.png, the 48×48 3DS HOME Menu icon (the
+// same mark on the same ground), which products/3ds/build.ts packs into the
+// SMDH.
+//
+// --3ds writes only the 3DS icons, without the sim run or the XMB set.
 //
 // --framework=<fw> bakes a VARIANT set into apps/<demo>/psp/<fw>/ instead:
 // same layout, plus the framework's name on the tile, in the PIC1 corner and
@@ -17,6 +22,7 @@
 //   bun tools/gen-demo-covers.ts                      (all demos, default fw)
 //   bun tools/gen-demo-covers.ts hero music           (a subset)
 //   bun tools/gen-demo-covers.ts --framework=octane   (the Octane twins)
+//   bun tools/gen-demo-covers.ts --3ds svelte-shooter (3DS icon only)
 
 import { createCanvas, GlobalFonts, type SKRSContext2D } from "@napi-rs/canvas";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
@@ -249,9 +255,211 @@ const DEMOS: DemoCover[] = [
       g.fill();
     },
   },
+  {
+    dir: "svelte-snake",
+    bundle: "svelte-snake-main",
+    framework: "svelte",
+    title: "PocketJS Svelte Snake",
+    word: ["SVELTE", "SNAKE"],
+    accent: "#34d399",
+    seconds: 2.0,
+    // The board's own palette: emerald body, lighter head, amber food.
+    mark: (g) => {
+      const cell = (col: number, row: number, fill: string): void => {
+        roundRect(g, 14 + col * 8, 20 + row * 8, 7, 7, 2);
+        g.fillStyle = fill;
+        g.fill();
+      };
+      for (const [col, row] of [[0, 4], [1, 4], [2, 4], [3, 4], [4, 4], [4, 3], [4, 2], [3, 2]] as const) {
+        cell(col, row, "#10b981");
+      }
+      cell(2, 2, "#6ee7b7");
+      g.beginPath();
+      g.arc(17.5, 23.5, 3.5, 0, Math.PI * 2);
+      g.fillStyle = "#fbbf24";
+      g.fill();
+    },
+  },
+  {
+    dir: "chrome",
+    bundle: "chrome-main",
+    title: "PocketJS Chrome",
+    word: ["POCKET", "CHROME"],
+    accent: "#1084d0",
+    seconds: 1.5,
+    // The demo's Win98 window: grey frame with the double bevel, the navy-to-
+    // blue caption with its close box, a sunken text well and one button.
+    mark: (g) => {
+      const bevel = (x: number, y: number, w: number, h: number, light: string, dark: string): void => {
+        g.fillStyle = light;
+        g.fillRect(x, y, w, 1);
+        g.fillRect(x, y, 1, h);
+        g.fillStyle = dark;
+        g.fillRect(x, y + h - 1, w, 1);
+        g.fillRect(x + w - 1, y, 1, h);
+      };
+      g.fillStyle = "#c0c0c0";
+      g.fillRect(12, 16, 46, 46);
+      bevel(12, 16, 46, 46, "#ffffff", "#404040");
+      const caption = g.createLinearGradient(15, 0, 55, 0);
+      caption.addColorStop(0, "#000080");
+      caption.addColorStop(1, "#1084d0");
+      g.fillStyle = caption;
+      g.fillRect(15, 19, 40, 9);
+      g.fillStyle = "#c0c0c0";
+      g.fillRect(47, 20, 7, 7);
+      bevel(47, 20, 7, 7, "#ffffff", "#404040");
+      g.fillStyle = "#000000";
+      g.fillRect(49, 22, 3, 3);
+      g.fillStyle = "#ffffff";
+      g.fillRect(16, 32, 38, 13);
+      bevel(16, 32, 38, 13, "#808080", "#ffffff");
+      g.fillStyle = "#c0c0c0";
+      g.fillRect(32, 49, 22, 9);
+      bevel(32, 49, 22, 9, "#ffffff", "#404040");
+    },
+  },
+  {
+    dir: "cursor",
+    bundle: "cursor-main",
+    title: "PocketJS Cursor",
+    word: ["POCKET", "CURSOR"],
+    accent: "#2dd4bf",
+    seconds: 1.5,
+    // The arrow pointer over the demo's teal desktop.
+    mark: (g) => {
+      roundRect(g, 14, 20, 40, 40, 10);
+      g.fillStyle = "#0f766e";
+      g.fill();
+      g.beginPath();
+      g.moveTo(26, 25);
+      g.lineTo(26, 52);
+      g.lineTo(32.5, 46);
+      g.lineTo(37, 56);
+      g.lineTo(41.5, 54);
+      g.lineTo(37, 44.5);
+      g.lineTo(45.5, 44.5);
+      g.closePath();
+      g.fillStyle = "#f8fafc";
+      g.fill();
+      g.strokeStyle = "#042f2e";
+      g.lineWidth = 2;
+      g.lineJoin = "round";
+      g.stroke();
+    },
+  },
+  {
+    dir: "motions",
+    bundle: "motions-main",
+    title: "PocketJS Motion Lab",
+    word: ["MOTION", "LAB"],
+    accent: "#a78bfa",
+    seconds: 2.0,
+    // An ease-in-out keyframe curve with the ball that rides it and its trail.
+    mark: (g) => {
+      g.strokeStyle = "#4c1d95";
+      g.lineWidth = 2;
+      g.beginPath();
+      g.moveTo(14, 58);
+      g.lineTo(58, 58);
+      g.moveTo(14, 58);
+      g.lineTo(14, 18);
+      g.stroke();
+      g.strokeStyle = "#a78bfa";
+      g.lineWidth = 3;
+      g.lineCap = "round";
+      g.beginPath();
+      g.moveTo(16, 56);
+      g.bezierCurveTo(34, 56, 38, 22, 56, 22);
+      g.stroke();
+      for (const [x, y, alpha] of [[30, 48, 0.3], [36, 38, 0.55]] as const) {
+        g.globalAlpha = alpha;
+        g.beginPath();
+        g.arc(x, y, 4, 0, Math.PI * 2);
+        g.fillStyle = "#f5f3ff";
+        g.fill();
+      }
+      g.globalAlpha = 1;
+      g.beginPath();
+      g.arc(43, 29, 5, 0, Math.PI * 2);
+      g.fillStyle = "#f5f3ff";
+      g.fill();
+    },
+  },
+  {
+    dir: "svelte-lab",
+    bundle: "svelte-lab-main",
+    framework: "svelte",
+    title: "PocketJS Svelte Lab",
+    word: ["SVELTE", "LAB"],
+    accent: "#ff3e00",
+    seconds: 1.5,
+    // An Erlenmeyer flask filled with Svelte orange, two bubbles rising.
+    mark: (g) => {
+      const flask = (): void => {
+        g.beginPath();
+        g.moveTo(29, 18);
+        g.lineTo(39, 18);
+        g.lineTo(39, 32);
+        g.lineTo(53, 56);
+        g.quadraticCurveTo(54, 60, 50, 60);
+        g.lineTo(18, 60);
+        g.quadraticCurveTo(14, 60, 15, 56);
+        g.lineTo(29, 32);
+        g.closePath();
+      };
+      flask();
+      g.fillStyle = "#1e293b";
+      g.fill();
+      g.save();
+      flask();
+      g.clip();
+      g.fillStyle = "#ff3e00";
+      g.fillRect(10, 42, 50, 20);
+      g.restore();
+      g.fillStyle = "#ffd5c7";
+      for (const [x, y, r] of [[30, 50, 2.5], [37, 46, 1.8]] as const) {
+        g.beginPath();
+        g.arc(x, y, r, 0, Math.PI * 2);
+        g.fill();
+      }
+      flask();
+      g.strokeStyle = "#f8fafc";
+      g.lineWidth = 2;
+      g.lineJoin = "round";
+      g.stroke();
+      g.fillStyle = "#f8fafc";
+      g.fillRect(27, 16, 14, 3);
+    },
+  },
 ];
 
+/** The mark's drawn bounds in ICON0 space, from the alpha it leaves. */
+function markBounds(demo: DemoCover): { x: number; y: number; w: number; h: number } {
+  const c = createCanvas(144, 80);
+  const g = c.getContext("2d");
+  demo.mark(g);
+  const { data } = g.getImageData(0, 0, 144, 80);
+  let x0 = 144;
+  let y0 = 80;
+  let x1 = -1;
+  let y1 = -1;
+  for (let y = 0; y < 80; y++) {
+    for (let x = 0; x < 144; x++) {
+      if (data[(y * 144 + x) * 4 + 3] === 0) continue;
+      x0 = Math.min(x0, x);
+      y0 = Math.min(y0, y);
+      x1 = Math.max(x1, x);
+      y1 = Math.max(y1, y);
+    }
+  }
+  if (x1 < 0) throw new Error(`${demo.dir}: the mark draws nothing`);
+  return { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+}
+
 const args = Bun.argv.slice(2);
+// --3ds writes only the HOME Menu icons: no XMB set, no sim run.
+const threeDsOnly = args.includes("--3ds");
 const frameworkArg = args.find((a) => a.startsWith("--framework="));
 // No flag = the shared, framework-neutral cover set the default build uses.
 const framework = frameworkArg
@@ -263,6 +471,32 @@ const selected = only.size === 0 ? DEMOS : DEMOS.filter((d) => only.has(d.dir));
 if (selected.length === 0) throw new Error(`no demos match: ${[...only].join(", ")}`);
 
 for (const demo of selected) {
+  // 3DS HOME Menu icon — 48×48: the mark alone on the family ground, scaled to
+  // fit a 34 px square with the accent rule under it. smdhtool reduces it to
+  // the 24×24 small icon. One per demo, whatever the framework: HOME Menu has
+  // no column of framework twins to tell apart.
+  if (framework === null) {
+    const icon = createCanvas(48, 48);
+    const g = icon.getContext("2d");
+    g.fillStyle = "#0a1118";
+    g.fillRect(0, 0, 48, 48);
+    const box = markBounds(demo);
+    const scale = Math.min(34 / box.w, 34 / box.h);
+    g.save();
+    g.translate(24 - (box.w * scale) / 2, 21 - (box.h * scale) / 2);
+    g.scale(scale, scale);
+    g.translate(-box.x, -box.y);
+    demo.mark(g);
+    g.restore();
+    g.fillStyle = demo.accent;
+    g.fillRect(17, 41, 14, 2);
+    const dir = `${ROOT}apps/${demo.dir}/3ds/`;
+    mkdirSync(dir, { recursive: true });
+    await Bun.write(dir + "icon.png", icon.toBuffer("image/png"));
+    console.log(`covers: apps/${demo.dir}/3ds/icon.png (48x48 HOME Menu icon)`);
+  }
+  if (threeDsOnly) continue;
+
   const out =
     framework === null
       ? `${ROOT}apps/${demo.dir}/psp/`

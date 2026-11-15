@@ -124,6 +124,7 @@ const SUITE: readonly Stage[] = [
       "tests/repack-vita.test.ts",
       "tests/3ds-soc.test.ts",
       "tests/3ds-audio.test.ts",
+      "tests/3ds-home-menu-icon.test.ts",
       "tests/sim-hz.test.ts",
       "tests/manifest-rewrites.test.ts",
       "tests/3ds-link.test.ts",
