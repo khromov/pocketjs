@@ -4,6 +4,7 @@
   import { animate } from "@pocketjs/framework/svelte/animation";
   import { Image, Sprite, Text, View, type NodeMirror } from "@pocketjs/framework/svelte/components";
   import SvelteLogoScreen from "../shared/SvelteLogoScreen.svelte";
+  import FitScreen from "../shared/FitScreen.svelte";
 
   // The rate the host presents frames at; main.svelte.ts passes the bundle's
   // tick rate, as the Solid entry does.
@@ -28,6 +29,7 @@
   </View>
 {/snippet}
 
+<FitScreen backdrop="absolute left-0 top-0 w-full h-full bg-gradient-to-b from-slate-50 to-slate-100">
 <View class="w-full h-full flex-col justify-between p-5 bg-gradient-to-b from-slate-50 to-slate-100">
   <View class="flex-row items-center justify-between">
     <View class="flex-row items-center gap-3">
@@ -74,5 +76,6 @@
     {/if}
   </View>
 </View>
+</FitScreen>
 
 <SvelteLogoScreen caption="Hero" />

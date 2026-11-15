@@ -14,6 +14,7 @@
   import { animate, spring } from "@pocketjs/framework/svelte/animation";
   import { Text, View, type NodeMirror } from "@pocketjs/framework/svelte/components";
   import SvelteLogoScreen from "../shared/SvelteLogoScreen.svelte";
+  import FitScreen from "../shared/FitScreen.svelte";
 
   interface Card {
     title: string;
@@ -92,6 +93,7 @@
   </View>
 {/snippet}
 
+<FitScreen backdrop="absolute left-0 top-0 w-full h-full bg-slate-50">
 <View
   debugName="CardsScreen"
   class="relative flex-col w-full h-full p-4 gap-3 bg-slate-50 overflow-hidden"
@@ -135,5 +137,6 @@
 
   <Text class="text-xs text-slate-500">LEFT / RIGHT move focus · CIRCLE toggle details</Text>
 </View>
+</FitScreen>
 
 <SvelteLogoScreen caption="Feature Cards" />

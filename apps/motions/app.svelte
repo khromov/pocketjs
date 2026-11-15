@@ -21,6 +21,7 @@
   import { onButtonPress } from "@pocketjs/framework/svelte/lifecycle";
   import { BTN } from "@pocketjs/framework/svelte/input";
   import SvelteLogoScreen from "../shared/SvelteLogoScreen.svelte";
+  import FitScreen from "../shared/FitScreen.svelte";
 
   // -------------------------------------------------------------------------
   // Tile chrome: 3x2 grid of 154x116 rounded cards. Keep the grid between the
@@ -621,6 +622,7 @@
   </View>
 {/snippet}
 
+<FitScreen backdrop="absolute left-0 top-0 w-full h-full bg-[#191919]">
 <View debugName="MotionsScreen" class="w-full h-full bg-[#191919]">
   <View debugName="Header" class="absolute left-0 top-[1] w-full flex-row justify-between px-[8]">
     <Text class="text-xs font-bold text-[#888] tracking-wide">{page.title}</Text>
@@ -660,5 +662,6 @@
     <Text class="text-xs font-bold text-[#888]">(yui540)</Text>
   </View>
 </View>
+</FitScreen>
 
 <SvelteLogoScreen caption="Motions" />

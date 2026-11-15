@@ -5,6 +5,7 @@
   import FeatureToggle from "./FeatureToggle.svelte";
   import { recordPress, session } from "./store.svelte.ts";
   import SvelteLogoScreen from "../shared/SvelteLogoScreen.svelte";
+  import FitScreen from "../shared/FitScreen.svelte";
 
   interface Feature {
     id: string;
@@ -29,6 +30,7 @@
   }
 </script>
 
+<FitScreen backdrop="absolute left-0 top-0 w-full h-full bg-gradient-to-b from-slate-50 to-slate-100">
 <View
   debugName="SvelteLab"
   class="w-full h-full flex-col gap-2 p-4 bg-gradient-to-b from-slate-50 to-slate-100"
@@ -97,5 +99,6 @@
     <Text class="text-xs text-slate-400">module presses: {session.presses}</Text>
   </View>
 </View>
+</FitScreen>
 
 <SvelteLogoScreen caption="Feature Lab" />
